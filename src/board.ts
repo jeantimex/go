@@ -1,6 +1,8 @@
 import { GoGame, Position } from './game';
 import { AnalysisResponse } from './analysis';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 export type LastMoveMarkerType = 'none' | 'circle' | 'triangle' | 'number';
 
@@ -16,8 +18,9 @@ export class BoardRenderer {
 
   // Three.js Core Objects
   private scene!: THREE.Scene;
-  private camera!: THREE.OrthographicCamera;
+  private camera!: THREE.PerspectiveCamera;
   private renderer!: THREE.WebGLRenderer;
+  private controls!: OrbitControls;
   private boardMesh!: THREE.Mesh;
   private boardTex!: THREE.CanvasTexture;
   private boardCache!: HTMLCanvasElement;
@@ -34,11 +37,21 @@ export class BoardRenderer {
   private hoverMesh: THREE.Mesh | null = null;
   private markerMesh: THREE.Mesh | null = null;
 
+  // GLTF 3D Model Variables
+  private isGltfLoaded = false;
+  private boardTopY = 0;
+  private boardCenterVec = new THREE.Vector3(0, 0, 0);
+  private boardSizeVec = new THREE.Vector3(20, 0.4, 20);
+  private gridPlaneMesh: THREE.Mesh | null = null;
+  private readonly overlayScale = 1.06;
+
   // Event Listeners references for cleanup
   private clickListener!: (e: MouseEvent) => void;
   private mousemoveListener!: (e: MouseEvent) => void;
   private mouseleaveListener!: () => void;
   private resizeListener!: () => void;
+
+  private animationFrameId: number | null = null;
 
   private readonly starPoints19 = [
     [3, 3], [9, 3], [15, 3],
@@ -57,6 +70,7 @@ export class BoardRenderer {
     this.game = game;
     this.initThree();
     this.setupEventListeners();
+    this.loadGltfModel();
   }
 
   private initThree(): void {
@@ -65,11 +79,8 @@ export class BoardRenderer {
 
     this.scene = new THREE.Scene();
 
-    // Orthographic Camera looking straight down
-    this.camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 100);
-    this.camera.position.set(0, 15, 0);
-    this.camera.lookAt(0, 0, 0);
-    this.camera.up.set(0, 0, -1);
+    // Perspective Camera for beautiful 3D view and OrbitControls
+    this.camera = new THREE.PerspectiveCamera(35, width / height, 0.1, 100);
 
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
@@ -80,6 +91,14 @@ export class BoardRenderer {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.setSize(width, height, false);
+
+    // Setup OrbitControls
+    this.controls = new OrbitControls(this.camera, this.canvas);
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.05;
+    this.controls.minDistance = 4;
+    this.controls.maxDistance = 40;
+    this.controls.maxPolarAngle = Math.PI / 2 - 0.05; // Prevent camera from going below ground
 
     // Create Cache Canvas for 2D board drawing
     const size = this.cellSize * (this.game.size - 1) + this.padding * 2;
@@ -92,7 +111,7 @@ export class BoardRenderer {
     this.boardTex = new THREE.CanvasTexture(this.boardCache);
     this.boardTex.colorSpace = THREE.SRGBColorSpace;
 
-    // Create Board 3D Mesh
+    // Create Procedural Board 3D Mesh (Visible until GLTF board loads)
     const boardWidth3D = size / this.cellSize;
     const boardGeom = new THREE.BoxGeometry(boardWidth3D, 0.4, boardWidth3D);
 
@@ -112,26 +131,35 @@ export class BoardRenderer {
     this.boardMesh.receiveShadow = true;
     this.scene.add(this.boardMesh);
 
-    // Setup Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.45);
+    // Setup Lights (Rich multi-directional setup for high fidelity 3D highlights)
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
     this.scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.85);
-    dirLight.position.set(4, 12, 4);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 1024;
-    dirLight.shadow.mapSize.height = 1024;
-    dirLight.shadow.camera.near = 0.5;
-    dirLight.shadow.camera.far = 25;
-
+    // Warm key light
+    const keyLight = new THREE.DirectionalLight(0xfff7e6, 1.25);
+    keyLight.position.set(8, 15, 6);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.width = 1024;
+    keyLight.shadow.mapSize.height = 1024;
+    keyLight.shadow.camera.near = 0.5;
+    keyLight.shadow.camera.far = 30;
     const d = 12;
-    dirLight.shadow.camera.left = -d;
-    dirLight.shadow.camera.right = d;
-    dirLight.shadow.camera.top = d;
-    dirLight.shadow.camera.bottom = -d;
-    dirLight.shadow.bias = -0.0005;
+    keyLight.shadow.camera.left = -d;
+    keyLight.shadow.camera.right = d;
+    keyLight.shadow.camera.top = d;
+    keyLight.shadow.camera.bottom = -d;
+    keyLight.shadow.bias = -0.0005;
+    this.scene.add(keyLight);
 
-    this.scene.add(dirLight);
+    // Cool fill light
+    const fillLight = new THREE.DirectionalLight(0xe6f7ff, 0.45);
+    fillLight.position.set(-8, 8, -6);
+    this.scene.add(fillLight);
+
+    // Soft point light near board accents
+    const pointLight = new THREE.PointLight(0xffffff, 0.8, 15);
+    pointLight.position.set(4, 5, -4);
+    this.scene.add(pointLight);
 
     // Geometries & Materials for Stones
     this.stoneGeom = new THREE.SphereGeometry(0.46, 32, 16);
@@ -144,7 +172,7 @@ export class BoardRenderer {
     });
 
     this.whiteMat = new THREE.MeshStandardMaterial({
-      color: 0xf0f0f0,
+      color: 0xf5f5f5,
       roughness: 0.15,
       metalness: 0.1
     });
@@ -156,7 +184,96 @@ export class BoardRenderer {
       roughness: 0.3
     });
 
+    // Start continuous rendering loop for smoother OrbitControls interaction
+    this.animate();
     this.resize();
+    this.resetCamera();
+  }
+
+  private loadGltfModel(): void {
+    const loader = new GLTFLoader();
+    loader.load('go_board/scene.gltf', (gltf) => {
+      // 1. Traverse scene: set shadow flags & hide all pre-baked stones (group/mesh)
+      gltf.scene.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          node.castShadow = true;
+          node.receiveShadow = true;
+        }
+
+        // Hide pre-baked stone nodes case-insensitively
+        const nameLower = node.name.toLowerCase();
+        if (nameLower.includes('stone')) {
+          node.visible = false;
+        }
+      });
+
+      // 2. Locate board mesh and align dimensions with scaling
+      const boardMesh = gltf.scene.getObjectByName('Board_Wood_0') as THREE.Mesh;
+      if (boardMesh) {
+        // Calculate raw size of board in GLTF
+        const box = new THREE.Box3().setFromObject(boardMesh);
+        const rawSize = new THREE.Vector3();
+        box.getSize(rawSize);
+
+        // Compute scaling factor to match procedural board size
+        const size2D = this.cellSize * (this.game.size - 1) + this.padding * 2;
+        const targetWidth = size2D / this.cellSize;
+        const scaleFactor = targetWidth / rawSize.x;
+
+        // Apply scale to GLTF scene
+        gltf.scene.scale.set(scaleFactor, scaleFactor, scaleFactor);
+
+        // Force world matrix update so Box3 calculations are correct
+        gltf.scene.updateMatrixWorld(true);
+
+        // Re-calculate bounding box and top Y coordinate of scaled board
+        const scaledBox = new THREE.Box3().setFromObject(boardMesh);
+        scaledBox.getSize(this.boardSizeVec);
+        scaledBox.getCenter(this.boardCenterVec);
+        this.boardTopY = this.boardCenterVec.y + this.boardSizeVec.y / 2;
+
+        // Create transparent grid overlay plane
+        const planeGeom = new THREE.PlaneGeometry(this.boardSizeVec.x * this.overlayScale, this.boardSizeVec.z * this.overlayScale);
+        planeGeom.rotateX(-Math.PI / 2);
+        
+        const planeMat = new THREE.MeshStandardMaterial({
+          map: this.boardTex,
+          transparent: true,
+          opacity: 1.0,
+          roughness: 0.4
+        });
+        
+        this.gridPlaneMesh = new THREE.Mesh(planeGeom, planeMat);
+        this.gridPlaneMesh.position.set(this.boardCenterVec.x, this.boardTopY + 0.005, this.boardCenterVec.z);
+        this.gridPlaneMesh.receiveShadow = true;
+        this.scene.add(this.gridPlaneMesh);
+      }
+
+      // Hide temporary procedural board
+      this.boardMesh.visible = false;
+
+      // Add GLTF scene
+      this.scene.add(gltf.scene);
+      this.isGltfLoaded = true;
+
+      // Center controls target on board
+      if (this.controls) {
+        this.resetCamera();
+      }
+
+      this.resize();
+      this.render();
+    });
+  }
+
+  private animate(): void {
+    this.animationFrameId = requestAnimationFrame(() => this.animate());
+
+    if (this.controls) {
+      this.controls.update();
+    }
+
+    this.renderer.render(this.scene, this.camera);
   }
 
   private setupEventListeners(): void {
@@ -206,60 +323,178 @@ export class BoardRenderer {
     mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
     raycaster.setFromCamera(mouse, this.camera);
-    const intersects = raycaster.intersectObject(this.boardMesh);
+    const targetMesh = this.isGltfLoaded && this.gridPlaneMesh ? this.gridPlaneMesh : this.boardMesh;
+    const intersects = raycaster.intersectObject(targetMesh);
 
     if (intersects.length > 0) {
       const pt = intersects[0].point;
       const size = this.game.size;
-      const boardWidth2D = this.cellSize * (size - 1) + this.padding * 2;
 
-      const rx = pt.x * this.cellSize;
-      const ry = pt.z * this.cellSize;
-      const tx = rx + boardWidth2D / 2;
-      const ty = ry + boardWidth2D / 2;
+      if (this.isGltfLoaded) {
+        const boardWidth2D = this.cellSize * (size - 1) + this.padding * 2;
+        const gridWidth2D = this.cellSize * (size - 1);
+        const ratio = gridWidth2D / boardWidth2D;
 
-      const x = Math.round((tx - this.padding) / this.cellSize);
-      const y = Math.round((ty - this.padding) / this.cellSize);
+        const gridWidth3D = this.boardSizeVec.x * this.overlayScale * ratio;
+        const gridDepth3D = this.boardSizeVec.z * this.overlayScale * ratio;
 
-      if (this.game.isValidPosition(x, y)) {
-        return { x, y };
+        const localX = pt.x - this.boardCenterVec.x;
+        const localZ = pt.z - this.boardCenterVec.z;
+
+        const x = Math.round(((localX / gridWidth3D) + 0.5) * (size - 1));
+        const y = Math.round(((localZ / gridDepth3D) + 0.5) * (size - 1));
+
+        if (this.game.isValidPosition(x, y)) {
+          return { x, y };
+        }
+      } else {
+        const boardWidth2D = this.cellSize * (size - 1) + this.padding * 2;
+        const rx = pt.x * this.cellSize;
+        const ry = pt.z * this.cellSize;
+        const tx = rx + boardWidth2D / 2;
+        const ty = ry + boardWidth2D / 2;
+
+        const x = Math.round((tx - this.padding) / this.cellSize);
+        const y = Math.round((ty - this.padding) / this.cellSize);
+
+        if (this.game.isValidPosition(x, y)) {
+          return { x, y };
+        }
       }
     }
     return null;
   }
 
+  private getGridSpacing3D(): number {
+    const size = this.game.size;
+    if (this.isGltfLoaded) {
+      const boardWidth2D = this.cellSize * (size - 1) + this.padding * 2;
+      const gridWidth2D = this.cellSize * (size - 1);
+      const ratio = gridWidth2D / boardWidth2D;
+      return (this.boardSizeVec.x * this.overlayScale * ratio) / (size - 1);
+    }
+    return 1.0;
+  }
+
   private get3DPosition(x: number, y: number): THREE.Vector3 {
     const size = this.game.size;
-    const boardWidth2D = this.cellSize * (size - 1) + this.padding * 2;
-    const tx = this.padding + x * this.cellSize;
-    const ty = this.padding + y * this.cellSize;
 
-    const rx = tx - boardWidth2D / 2;
-    const ry = ty - boardWidth2D / 2;
+    if (this.isGltfLoaded) {
+      const boardWidth2D = this.cellSize * (size - 1) + this.padding * 2;
+      const gridWidth2D = this.cellSize * (size - 1);
+      const ratio = gridWidth2D / boardWidth2D;
 
-    return new THREE.Vector3(rx / this.cellSize, 0, ry / this.cellSize);
+      const gridWidth3D = this.boardSizeVec.x * this.overlayScale * ratio;
+      const gridDepth3D = this.boardSizeVec.z * this.overlayScale * ratio;
+
+      const pctX = x / (size - 1) - 0.5;
+      const pctY = y / (size - 1) - 0.5;
+
+      return new THREE.Vector3(
+        this.boardCenterVec.x + pctX * gridWidth3D,
+        this.boardTopY,
+        this.boardCenterVec.z + pctY * gridDepth3D
+      );
+    } else {
+      const boardWidth2D = this.cellSize * (size - 1) + this.padding * 2;
+      const tx = this.padding + x * this.cellSize;
+      const ty = this.padding + y * this.cellSize;
+
+      const rx = tx - boardWidth2D / 2;
+      const ry = ty - boardWidth2D / 2;
+
+      return new THREE.Vector3(rx / this.cellSize, 0, ry / this.cellSize);
+    }
   }
 
   private resize(): void {
     const containerWidth = this.canvas.parentElement?.clientWidth || window.innerWidth;
     const containerHeight = this.canvas.parentElement?.clientHeight || window.innerHeight;
 
-    // Subtract header height and paddings for layout alignment
     const availHeight = containerHeight - 80;
     const sizePx = Math.max(280, Math.floor(Math.min(containerWidth - 40, availHeight - 40)));
 
     this.renderer.setSize(sizePx, sizePx, true);
 
-    const size = this.game.size;
-    const boardWidth3D = (this.cellSize * (size - 1) + this.padding * 2) / this.cellSize;
-
-    this.camera.left = -boardWidth3D / 2;
-    this.camera.right = boardWidth3D / 2;
-    this.camera.top = boardWidth3D / 2;
-    this.camera.bottom = -boardWidth3D / 2;
+    this.camera.aspect = 1; // Since width and height are equal (square)
     this.camera.updateProjectionMatrix();
   }
 
+  private getFitCameraDistance(): number {
+    const size = this.game.size;
+    const boardWidth2D = this.cellSize * (size - 1) + this.padding * 2;
+    const targetWidth = boardWidth2D / this.cellSize;
+    
+    // We want the board to fit inside the camera view with a 35% margin
+    const visibleDim = targetWidth * 1.35;
+    const fovRad = (this.camera.fov / 2) * (Math.PI / 180);
+    return visibleDim / (2 * Math.tan(fovRad));
+  }
+
+  private resetCamera(): void {
+    const dist = this.getFitCameraDistance();
+    
+    // Set camera straight top-down looking at the board center
+    this.camera.position.set(this.boardCenterVec.x, this.boardCenterVec.y + dist, this.boardCenterVec.z + 0.01);
+    
+    if (this.controls) {
+      this.controls.target.copy(this.boardCenterVec);
+      this.controls.update();
+    }
+  }
+  updateGame(game: GoGame): void {
+    this.game = game;
+    
+    // Re-create the cache canvas for the new board size
+    const size = this.cellSize * (this.game.size - 1) + this.padding * 2;
+    this.boardCache.width = size;
+    this.boardCache.height = size;
+    this.cacheCtx = this.boardCache.getContext('2d')!;
+
+    // Re-create/update the board texture
+    if (this.boardTex) {
+      this.boardTex.dispose();
+    }
+    this.boardTex = new THREE.CanvasTexture(this.boardCache);
+    this.boardTex.colorSpace = THREE.SRGBColorSpace;
+
+    // Update materials mapping
+    if (this.boardMesh) {
+      const topMat = (this.boardMesh.material as THREE.Material[])[2] as THREE.MeshStandardMaterial;
+      if (topMat) {
+        topMat.map = this.boardTex;
+        topMat.needsUpdate = true;
+      }
+    }
+
+    if (this.gridPlaneMesh) {
+      const planeMat = this.gridPlaneMesh.material as THREE.MeshStandardMaterial;
+      if (planeMat) {
+        planeMat.map = this.boardTex;
+        planeMat.needsUpdate = true;
+      }
+    }
+
+    // Clear all existing stone meshes
+    this.stoneMeshes.forEach(mesh => {
+      this.scene.remove(mesh);
+      if (mesh.geometry) mesh.geometry.dispose();
+    });
+    this.stoneMeshes.clear();
+
+    if (this.markerMesh) {
+      this.scene.remove(this.markerMesh);
+      this.markerMesh = null;
+    }
+
+    if (this.hoverMesh) {
+      this.scene.remove(this.hoverMesh);
+      this.hoverMesh = null;
+    }
+
+    this.resize();
+    this.resetCamera();
+  }
   onMove?: () => void;
 
   setAnalysis(analysis: AnalysisResponse | null): void {
@@ -276,7 +511,10 @@ export class BoardRenderer {
     this.updateGridCanvas();
     this.boardTex.needsUpdate = true;
 
-    // 2. Sync 3D stone meshes
+    // 2. Get scale bounds
+    const scale = this.getGridSpacing3D();
+
+    // 3. Sync 3D stone meshes
     const currentStoneKeys = new Set<string>();
 
     for (let y = 0; y < this.game.size; y++) {
@@ -294,6 +532,11 @@ export class BoardRenderer {
               this.scene.remove(existingMesh);
               this.stoneMeshes.delete(key);
               this.createStoneMesh(x, y, stone);
+            } else {
+              // Recalculate 3D position in case GLTF loaded late
+              existingMesh.position.copy(this.get3DPosition(x, y));
+              existingMesh.position.y += 0.08 * scale;
+              existingMesh.scale.set(scale, scale, scale);
             }
           } else {
             this.createStoneMesh(x, y, stone);
@@ -309,43 +552,45 @@ export class BoardRenderer {
       }
     });
 
-    // 3. Sync Hover Stone Mesh
+    // 4. Sync Hover Stone Mesh
     if (this.hoverPos && this.game.canPlaceStone(this.hoverPos.x, this.hoverPos.y)) {
       if (!this.hoverMesh) {
         this.hoverMesh = new THREE.Mesh(this.stoneGeom, this.ghostMat);
         this.scene.add(this.hoverMesh);
       }
       this.hoverMesh.position.copy(this.get3DPosition(this.hoverPos.x, this.hoverPos.y));
+      this.hoverMesh.position.y += 0.08 * scale;
+      this.hoverMesh.scale.set(scale, scale, scale);
       this.ghostMat.color.setHex(this.game.currentPlayer === 'black' ? 0x222222 : 0xdddddd);
       this.hoverMesh.visible = true;
     } else if (this.hoverMesh) {
       this.hoverMesh.visible = false;
     }
 
-    // 4. Sync Last Move Marker Mesh
+    // 5. Sync Last Move Marker Mesh
     if (this.lastMoveMarkerType !== 'none' && this.game.lastMove) {
-      this.updateLastMoveMarker(this.game.lastMove.x, this.game.lastMove.y);
+      this.updateLastMoveMarker(this.game.lastMove.x, this.game.lastMove.y, scale);
     } else if (this.markerMesh) {
       this.scene.remove(this.markerMesh);
       this.markerMesh = null;
     }
-
-    // 5. Render Scene
-    this.renderer.render(this.scene, this.camera);
   }
 
   private createStoneMesh(x: number, y: number, color: 'black' | 'white'): void {
     const material = color === 'black' ? this.blackMat : this.whiteMat;
     const mesh = new THREE.Mesh(this.stoneGeom, material);
     mesh.position.copy(this.get3DPosition(x, y));
-    mesh.position.y = 0.08;
+    
+    const scale = this.getGridSpacing3D();
+    mesh.position.y += 0.08 * scale;
+    mesh.scale.set(scale, scale, scale);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     this.scene.add(mesh);
     this.stoneMeshes.set(`${x},${y}`, mesh);
   }
 
-  private updateLastMoveMarker(x: number, y: number): void {
+  private updateLastMoveMarker(x: number, y: number, scale: number): void {
     if (this.markerMesh) {
       this.scene.remove(this.markerMesh);
       this.markerMesh = null;
@@ -354,10 +599,10 @@ export class BoardRenderer {
     const stone = this.game.getStone(x, y);
     const color = stone === 'black' ? 0xffffff : 0x000000;
     const pos = this.get3DPosition(x, y);
-    pos.y = 0.22; // Float slightly above the stone
+    pos.y += 0.22 * scale; // Float slightly above the stone
 
     if (this.lastMoveMarkerType === 'circle') {
-      const circleGeom = new THREE.RingGeometry(0.12, 0.16, 32);
+      const circleGeom = new THREE.RingGeometry(0.12 * scale, 0.16 * scale, 32);
       circleGeom.rotateX(-Math.PI / 2);
       const mat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide });
       this.markerMesh = new THREE.Mesh(circleGeom, mat);
@@ -365,9 +610,9 @@ export class BoardRenderer {
       this.scene.add(this.markerMesh);
     } else if (this.lastMoveMarkerType === 'triangle') {
       const triGeom = new THREE.ShapeGeometry(new THREE.Shape([
-        new THREE.Vector2(0, 0.13),
-        new THREE.Vector2(-0.13, -0.1),
-        new THREE.Vector2(0.13, -0.1)
+        new THREE.Vector2(0, 0.13 * scale),
+        new THREE.Vector2(-0.13 * scale, -0.1 * scale),
+        new THREE.Vector2(0.13 * scale, -0.1 * scale)
       ]));
       triGeom.rotateX(-Math.PI / 2);
       const mat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide });
@@ -388,7 +633,7 @@ export class BoardRenderer {
         numCtx.fillText(moveNum.toString(), 32, 32);
 
         const numTex = new THREE.CanvasTexture(numCanvas);
-        const numGeom = new THREE.PlaneGeometry(0.5, 0.5);
+        const numGeom = new THREE.PlaneGeometry(0.5 * scale, 0.5 * scale);
         numGeom.rotateX(-Math.PI / 2);
         const mat = new THREE.MeshBasicMaterial({
           map: numTex,
@@ -406,10 +651,14 @@ export class BoardRenderer {
     const size = this.boardCache.width;
     const ctx = this.cacheCtx;
 
-    ctx.fillStyle = '#DCB468';
-    ctx.fillRect(0, 0, size, size);
+    ctx.clearRect(0, 0, size, size);
 
-    this.drawWoodGrain(ctx, size);
+    if (!this.isGltfLoaded) {
+      ctx.fillStyle = '#DCB468';
+      ctx.fillRect(0, 0, size, size);
+      this.drawWoodGrain(ctx, size);
+    }
+
     this.drawGridLines(ctx);
     this.drawStarPoints(ctx);
     this.drawCoordinates(ctx);
@@ -587,6 +836,14 @@ export class BoardRenderer {
     this.canvas.removeEventListener('mouseleave', this.mouseleaveListener);
     window.removeEventListener('resize', this.resizeListener);
 
+    if (this.animationFrameId) {
+      cancelAnimationFrame(this.animationFrameId);
+    }
+
+    if (this.controls) {
+      this.controls.dispose();
+    }
+
     this.boardMesh.geometry.dispose();
     if (Array.isArray(this.boardMesh.material)) {
       this.boardMesh.material.forEach(m => m.dispose());
@@ -620,6 +877,16 @@ export class BoardRenderer {
     if (this.hoverMesh) {
       this.scene.remove(this.hoverMesh);
       if (this.hoverMesh.geometry) this.hoverMesh.geometry.dispose();
+    }
+
+    if (this.gridPlaneMesh) {
+      this.scene.remove(this.gridPlaneMesh);
+      if (this.gridPlaneMesh.geometry) this.gridPlaneMesh.geometry.dispose();
+      if (Array.isArray(this.gridPlaneMesh.material)) {
+        this.gridPlaneMesh.material.forEach(m => m.dispose());
+      } else if (this.gridPlaneMesh.material) {
+        this.gridPlaneMesh.material.dispose();
+      }
     }
 
     this.renderer.dispose();

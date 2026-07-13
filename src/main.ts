@@ -312,18 +312,8 @@ class App {
     this.gameInfo = parsed.info;
 
     if (parsed.info.boardSize !== this.game.size) {
-      if (this.renderer) {
-        this.renderer.dispose();
-      }
       this.game = new GoGame(parsed.info.boardSize);
-      this.renderer = new BoardRenderer(
-        document.getElementById('board') as HTMLCanvasElement,
-        this.game
-      );
-      this.renderer.onMove = () => {
-        this.updateUI();
-        this.renderer.clearAnalysis();
-      };
+      this.renderer.updateGame(this.game);
 
       const buttons = document.querySelectorAll('.board-size-selector button');
       buttons.forEach((btn) => {
@@ -333,6 +323,7 @@ class App {
     }
 
     this.game.loadGame(parsed.moves);
+    this.game.lastMoveReplay();
     this.showGameInfo();
     this.showReplayControls();
     this.updateReplayUI();
@@ -547,21 +538,8 @@ class App {
   }
 
   private changeBoardSize(size: number): void {
-    if (this.renderer) {
-      this.renderer.dispose();
-    }
     this.game = new GoGame(size);
-    this.renderer = new BoardRenderer(
-      document.getElementById('board') as HTMLCanvasElement,
-      this.game
-    );
-    this.renderer.onMove = () => {
-      this.updateUI();
-      this.renderer.clearAnalysis();
-      if (!this.game.isReplayMode) {
-        this.hideReplayControls();
-      }
-    };
+    this.renderer.updateGame(this.game);
     this.renderer.render();
     this.updateUI();
     this.hideAnalysis();
