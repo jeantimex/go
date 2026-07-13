@@ -60,6 +60,7 @@ export class BoardRenderer {
   private blackLidTopY = 0;
   private whiteLidTopY = 0;
   private capturedStoneMeshes: THREE.Mesh[] = [];
+  private lidScatterRadius = 1.0;
 
   // Event Listeners references for cleanup
   private clickListener!: (e: MouseEvent) => void;
@@ -330,6 +331,23 @@ export class BoardRenderer {
           // Also get the height level on top of the lid
           this.blackLidTopY = lid1.center.y + lid1.size.y / 2;
           this.whiteLidTopY = lid2.center.y + lid2.size.y / 2;
+
+          // Calculate the true radius of the lids dynamically
+          const lidRadius = lid1.size.x / 2;
+          this.lidScatterRadius = lidRadius * 0.88; // 88% of the actual radius to align perfectly right inside the rim groove
+
+          // Draw green debugging circles to visualize the lid bounds
+          const createDebugCircle = (center: THREE.Vector3, topY: number) => {
+            const debugCircleGeom = new THREE.RingGeometry(this.lidScatterRadius - 0.02, this.lidScatterRadius, 64);
+            debugCircleGeom.rotateX(-Math.PI / 2);
+            const debugCircleMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide });
+            const debugCircleMesh = new THREE.Mesh(debugCircleGeom, debugCircleMat);
+            debugCircleMesh.position.copy(center);
+            debugCircleMesh.position.y = topY + 0.005; // slightly above lid surface to avoid z-fighting
+            this.scene.add(debugCircleMesh);
+          };
+          if (this.blackLidCenter) createDebugCircle(this.blackLidCenter, this.blackLidTopY);
+          if (this.whiteLidCenter) createDebugCircle(this.whiteLidCenter, this.whiteLidTopY);
         }
 
         // Traverse scene to set shadow flags & hide board stones and lid stones
@@ -1094,31 +1112,30 @@ export class BoardRenderer {
   }
 
   private getCapturedStonePosition(index: number, lidCenter: THREE.Vector3, lidTopY: number): THREE.Vector3 {
-    // Arrange in a neat, slightly jittered spiral grid layout
-    const radiusStep = 0.15;
-    const angleStep = 0.65; // spiral step in radians
+    // Generate deterministic pseudo-random positions scattered across the lid surface
+    // Using sine/cosine hash functions with large prime multipliers for high-frequency pseudo-randomness
+    const rSeed = Math.sin(index * 724.89 + 12.34); // value in [-1, 1]
+    const thetaSeed = Math.cos(index * 983.21 + 56.78); // value in [-1, 1]
 
-    if (index === 0) {
-      return new THREE.Vector3(lidCenter.x, lidTopY + 0.02, lidCenter.z);
-    }
+    // Map rSeed to a radius. Using Math.sqrt of a uniform variable gives a uniform area distribution in a circle
+    const u = (rSeed + 1) / 2; // uniform [0, 1]
+    const radius = 0.2 + (this.lidScatterRadius - 0.2) * Math.sqrt(u); // distributed radius scaled to the true flat top bounds
 
-    // Concentric spiral rings
-    const r = Math.sqrt(index) * radiusStep;
-    const theta = index * angleStep;
+    // Map thetaSeed to an angle in [0, 2*PI]
+    const angle = ((thetaSeed + 1) / 2) * Math.PI * 2;
 
-    // Slight hand-placed jitter (deterministic seed to avoid vibration during rotations)
-    const seed = index * 12345.67;
-    const jitterX = (Math.sin(seed) * 0.5) * 0.04;
-    const jitterZ = (Math.cos(seed) * 0.5) * 0.04;
-    
-    // Stack layers of stones if there are many captured stones
-    const layer = Math.floor(index / 12);
+    // Small height offset for resting naturally on the lid
+    const yOffset = 0.02 + (Math.sin(index * 500) * 0.005);
+
+    // If there are too many captured stones, we can stack them on top of each other
+    // For every 15 stones, start a new layer slightly elevated
+    const layer = Math.floor(index / 15);
     const stackY = layer * 0.08;
 
     return new THREE.Vector3(
-      lidCenter.x + r * Math.cos(theta) + jitterX,
-      lidTopY + 0.02 + stackY,
-      lidCenter.z + r * Math.sin(theta) + jitterZ
+      lidCenter.x + Math.cos(angle) * radius,
+      lidTopY + yOffset + stackY,
+      lidCenter.z + Math.sin(angle) * radius
     );
   }
 
