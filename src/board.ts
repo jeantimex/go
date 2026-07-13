@@ -46,6 +46,12 @@ export class BoardRenderer {
   private readonly overlayScale = 1.06;
   private gltfScene: THREE.Group | null = null;
 
+  // Lights
+  private ambientLight!: THREE.AmbientLight;
+  private keyLight!: THREE.DirectionalLight;
+  private fillLight!: THREE.DirectionalLight;
+  private pointLight!: THREE.PointLight;
+
   // Event Listeners references for cleanup
   private clickListener!: (e: MouseEvent) => void;
   private mousemoveListener!: (e: MouseEvent) => void;
@@ -134,34 +140,34 @@ export class BoardRenderer {
     this.scene.add(this.boardMesh);
 
     // Setup Lights (Rich multi-directional setup for high fidelity 3D highlights)
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-    this.scene.add(ambientLight);
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    this.scene.add(this.ambientLight);
 
     // Warm key light
-    const keyLight = new THREE.DirectionalLight(0xfff7e6, 1.25);
-    keyLight.position.set(8, 15, 6);
-    keyLight.castShadow = true;
-    keyLight.shadow.mapSize.width = 1024;
-    keyLight.shadow.mapSize.height = 1024;
-    keyLight.shadow.camera.near = 0.5;
-    keyLight.shadow.camera.far = 30;
+    this.keyLight = new THREE.DirectionalLight(0xfff7e6, 1.25);
+    this.keyLight.position.set(8, 15, 6);
+    this.keyLight.castShadow = true;
+    this.keyLight.shadow.mapSize.width = 1024;
+    this.keyLight.shadow.mapSize.height = 1024;
+    this.keyLight.shadow.camera.near = 0.5;
+    this.keyLight.shadow.camera.far = 30;
     const d = 12;
-    keyLight.shadow.camera.left = -d;
-    keyLight.shadow.camera.right = d;
-    keyLight.shadow.camera.top = d;
-    keyLight.shadow.camera.bottom = -d;
-    keyLight.shadow.bias = -0.0005;
-    this.scene.add(keyLight);
+    this.keyLight.shadow.camera.left = -d;
+    this.keyLight.shadow.camera.right = d;
+    this.keyLight.shadow.camera.top = d;
+    this.keyLight.shadow.camera.bottom = -d;
+    this.keyLight.shadow.bias = -0.0005;
+    this.scene.add(this.keyLight);
 
     // Cool fill light
-    const fillLight = new THREE.DirectionalLight(0xe6f7ff, 0.45);
-    fillLight.position.set(-8, 8, -6);
-    this.scene.add(fillLight);
+    this.fillLight = new THREE.DirectionalLight(0xe6f7ff, 0.45);
+    this.fillLight.position.set(-8, 8, -6);
+    this.scene.add(this.fillLight);
 
     // Soft point light near board accents
-    const pointLight = new THREE.PointLight(0xffffff, 0.8, 15);
-    pointLight.position.set(4, 5, -4);
-    this.scene.add(pointLight);
+    this.pointLight = new THREE.PointLight(0xffffff, 0.8, 15);
+    this.pointLight.position.set(4, 5, -4);
+    this.scene.add(this.pointLight);
 
     // Geometries & Materials for Stones
     this.stoneGeom = new THREE.SphereGeometry(0.46, 32, 16);
@@ -525,6 +531,44 @@ export class BoardRenderer {
     this.resize();
     this.resetCamera();
   }
+  setAmbientLightIntensity(val: number): void {
+    if (this.ambientLight) this.ambientLight.intensity = val;
+  }
+
+  setKeyLightIntensity(val: number): void {
+    if (this.keyLight) this.keyLight.intensity = val;
+  }
+
+  setKeyLightColor(colorHex: string): void {
+    if (this.keyLight) this.keyLight.color.set(colorHex);
+  }
+
+  setFillLightIntensity(val: number): void {
+    if (this.fillLight) this.fillLight.intensity = val;
+  }
+
+  setPointLightIntensity(val: number): void {
+    if (this.pointLight) this.pointLight.intensity = val;
+  }
+
+  setShadowsEnabled(enabled: boolean): void {
+    this.renderer.shadowMap.enabled = enabled;
+    
+    // We must update the materials to re-compile shaders for shadow maps
+    this.scene.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.material) {
+        const mats = Array.isArray(node.material) ? node.material : [node.material];
+        mats.forEach(mat => {
+          mat.needsUpdate = true;
+        });
+      }
+    });
+
+    if (this.keyLight) {
+      this.keyLight.castShadow = enabled;
+    }
+  }
+
   onMove?: () => void;
 
   setAnalysis(analysis: AnalysisResponse | null): void {

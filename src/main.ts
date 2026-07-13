@@ -41,6 +41,7 @@ class App {
     this.checkServer();
     this.setupTabs();
     this.setupRulesToggle();
+    this.setupSceneSettings();
   }
 
   private async checkServer(): Promise<void> {
@@ -71,6 +72,7 @@ class App {
           <div class="tabs-header">
             <button class="tab-btn active" data-tab="game">Game</button>
             <button class="tab-btn" data-tab="analysis">Analysis</button>
+            <button class="tab-btn" data-tab="scene">Scene</button>
           </div>
 
           <div class="tab-content active" id="tab-game">
@@ -110,23 +112,31 @@ class App {
                   <span class="detail-label">Event</span>
                   <span class="detail-value" id="game-event"></span>
                 </div>
+                <div class="detail-row" id="rules-row" style="display: none;">
+                  <span class="detail-label">Rules</span>
+                  <span class="detail-value" id="game-rules"></span>
+                </div>
+                <div class="detail-row" id="komi-row" style="display: none;">
+                  <span class="detail-label">Komi</span>
+                  <span class="detail-value" id="game-komi"></span>
+                </div>
               </div>
             </div>
 
             <div class="replay-controls" id="replay-controls" style="display: none;">
-              <div class="move-counter">
+              <div class="move-counter" style="text-align: center; margin-bottom: 8px; font-weight: 600; color: #aaa;">
                 Move <span id="current-move">0</span> / <span id="total-moves">0</span>
               </div>
               <div class="replay-slider-container">
-                <input type="range" id="move-slider" min="0" max="0" value="0" class="move-slider" />
+                <input type="range" id="move-slider" min="0" max="0" value="0" style="width: 100%; margin-bottom: 10px;" />
               </div>
               <div class="replay-buttons">
-                <button id="first-btn" title="First">⏮</button>
-                <button id="prev-btn" title="Previous">◀</button>
-                <button id="next-btn" title="Next">▶</button>
-                <button id="last-btn" title="Last">⏭</button>
+                <button id="first-btn" title="First Move">&lt;&lt;</button>
+                <button id="prev-btn" title="Previous Move">&lt;</button>
+                <button id="next-btn" title="Next Move">&gt;</button>
+                <button id="last-btn" title="Last Move">&gt;&gt;</button>
               </div>
-              <button class="btn-exit-replay" id="exit-replay-btn">Exit Replay</button>
+              <button class="btn-exit-replay" id="exit-replay-btn" style="margin-top: 10px; width: 100%;">Exit Replay</button>
             </div>
 
             <div class="turn-indicator" id="turn-indicator">
@@ -144,15 +154,31 @@ class App {
                 <span id="white-captures">0</span>
               </div>
             </div>
+
             <div class="buttons">
               <button class="btn-pass" id="pass-btn">Pass</button>
               <button class="btn-reset" id="reset-btn">Reset</button>
-              <button class="btn-review" id="review-btn" disabled>Review</button>
             </div>
 
-            <div class="load-section">
+            <div class="settings">
+              <label class="select-setting">
+                <span>Last move marker</span>
+                <select id="last-move-marker">
+                  <option value="none">None</option>
+                  <option value="circle">Circle</option>
+                  <option value="triangle">Triangle</option>
+                  <option value="step">Move Number</option>
+                </select>
+              </label>
+            </div>
+            
+            <div class="review-section" style="margin-top: 10px;">
+              <button class="btn-review" id="review-btn" disabled>Review Game</button>
+            </div>
+
+            <div class="load-section" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #444;">
               <h3>SGF Files</h3>
-              <div class="sgf-actions">
+              <div class="sgf-actions" style="margin-top: 8px;">
                 <label class="btn-load" for="sgf-input">
                   Load SGF File
                   <input type="file" id="sgf-input" accept=".sgf" style="display: none;" />
@@ -160,60 +186,50 @@ class App {
                 <button class="btn-save-sgf" id="save-sgf-btn">Save SGF File</button>
               </div>
             </div>
-
-            <div class="settings">
-              <h3>Settings</h3>
-              <div class="select-setting">
-                <span>Last move marker</span>
-                <select id="last-move-marker">
-                  <option value="none" selected>None</option>
-                  <option value="circle">Circle</option>
-                  <option value="triangle">Triangle</option>
-                  <option value="number">Move Number</option>
-                </select>
-              </div>
-            </div>
           </div>
 
           <div class="tab-content" id="tab-analysis">
-            <div class="analysis-section" style="margin-top: 0; padding-top: 0; border-top: none;">
-              <div class="analysis-header">
-                <h3>KataGo Engine</h3>
-                <span id="server-status" class="status-badge offline">Offline</span>
+            <div class="analysis-controls">
+              <button class="btn-pass" id="analyze-btn">Analyze Position</button>
+              <div class="server-status">
+                <span>KataGo:</span>
+                <span class="status-badge offline" id="server-status">Offline</span>
               </div>
-              <button class="btn-analyze" id="analyze-btn" disabled>Analyze Position</button>
-              <div class="analysis-results" id="analysis-results" style="display: none;">
-                <div class="winrate-bar" id="winrate-bar">
-                  <span class="winrate-black" id="winrate-black">B 50%</span>
-                  <span class="winrate-white" id="winrate-white">W 50%</span>
-                </div>
-                
-                <div class="territory-estimates" id="territory-estimates" style="display: none;">
-                  <div class="estimates-header">
-                    <h4>Territory Estimates</h4>
-                    <div class="rules-toggle">
-                      <button class="rules-tab-btn active" id="btn-rules-japanese">Japanese</button>
-                      <button class="rules-tab-btn" id="btn-rules-chinese">Chinese</button>
-                    </div>
-                  </div>
-                  <div class="estimates-body">
-                    <div class="estimate-row">
-                      <span class="est-label">Black Score</span>
-                      <span class="est-value" id="est-black-val">0.0</span>
-                    </div>
-                    <div class="estimate-row">
-                      <span class="est-label">White Score</span>
-                      <span class="est-value" id="est-white-val">0.0</span>
-                    </div>
-                    <div class="estimate-row result-row">
-                      <span class="est-label">Estimated Lead</span>
-                      <span class="est-value" id="est-result-val">0.0</span>
-                    </div>
-                    <div class="estimate-details" id="est-details-text"></div>
-                  </div>
-                </div>
+            </div>
 
-                <div class="top-moves" id="top-moves"></div>
+            <div class="analysis-results" id="analysis-results" style="display: none;">
+              <div class="winrate-bar-container">
+                <div class="winrate-bar-label">
+                  <span>Win Rate</span>
+                  <span id="winrate-val">50%</span>
+                </div>
+                <div class="winrate-bar-bg">
+                  <div class="winrate-bar-fill" id="winrate-fill" style="width: 50%"></div>
+                </div>
+              </div>
+
+              <div class="score-estimates">
+                <div class="estimate-row">
+                  <span class="est-label">Black Score</span>
+                  <span class="est-value" id="est-black-val">0.0</span>
+                </div>
+                <div class="estimate-row">
+                  <span class="est-label">White Score</span>
+                  <span class="est-value" id="est-white-val">0.0</span>
+                </div>
+                <div class="estimate-row result-row">
+                  <span class="est-label">Estimated Lead</span>
+                  <span class="est-value" id="est-result-val">0.0</span>
+                </div>
+                <div class="estimate-details" id="est-details-text"></div>
+              </div>
+            </div>
+
+            <div class="rules-toggle-container" style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid #333;">
+              <span style="font-size: 11px; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Scoring Rules</span>
+              <div class="rules-toggle">
+                <button class="rules-tab-btn active" id="btn-rules-japanese">Japanese</button>
+                <button class="rules-tab-btn" id="btn-rules-chinese">Chinese</button>
               </div>
             </div>
 
@@ -224,6 +240,59 @@ class App {
                 <input type="checkbox" id="show-ownership" />
                 <div class="toggle-switch"></div>
               </label>
+            </div>
+          </div>
+
+          <div class="tab-content" id="tab-scene">
+            <div class="scene-settings">
+              <div class="setting-group">
+                <h3>Ambient Light</h3>
+                <div class="slider-row">
+                  <label for="ambient-intensity">Intensity</label>
+                  <input type="range" id="ambient-intensity" min="0" max="2" step="0.05" value="0.4" />
+                  <span id="ambient-intensity-val">0.40</span>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <h3>Key Light (Warm)</h3>
+                <div class="slider-row">
+                  <label for="key-intensity">Intensity</label>
+                  <input type="range" id="key-intensity" min="0" max="3" step="0.05" value="1.25" />
+                  <span id="key-intensity-val">1.25</span>
+                </div>
+                <div class="slider-row">
+                  <label for="key-color">Color</label>
+                  <input type="color" id="key-color" value="#fff7e6" />
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <h3>Fill Light (Cool)</h3>
+                <div class="slider-row">
+                  <label for="fill-intensity">Intensity</label>
+                  <input type="range" id="fill-intensity" min="0" max="2" step="0.05" value="0.45" />
+                  <span id="fill-intensity-val">0.45</span>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <h3>Point Light (Bowl Accent)</h3>
+                <div class="slider-row">
+                  <label for="point-intensity">Intensity</label>
+                  <input type="range" id="point-intensity" min="0" max="2" step="0.05" value="0.8" />
+                  <span id="point-intensity-val">0.80</span>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <div class="checkbox-row">
+                  <input type="checkbox" id="enable-shadows" checked />
+                  <label for="enable-shadows">Enable 3D Shadows</label>
+                </div>
+              </div>
+
+              <button id="reset-lights-btn" class="btn-pass" style="margin-top: 10px; width: 100%;">Reset Lights</button>
             </div>
           </div>
         </div>
@@ -561,13 +630,13 @@ class App {
     const tabButtons = document.querySelectorAll('.tab-btn');
     tabButtons.forEach((btn) => {
       btn.addEventListener('click', () => {
-        const tab = (btn as HTMLElement).dataset.tab as 'game' | 'analysis';
+        const tab = (btn as HTMLElement).dataset.tab as 'game' | 'analysis' | 'scene';
         this.switchTab(tab);
       });
     });
   }
 
-  private switchTab(tab: 'game' | 'analysis'): void {
+  private switchTab(tab: 'game' | 'analysis' | 'scene'): void {
     // Update button states
     const tabButtons = document.querySelectorAll('.tab-btn');
     tabButtons.forEach((btn) => {
@@ -578,6 +647,78 @@ class App {
     // Update content states
     document.getElementById('tab-game')!.classList.toggle('active', tab === 'game');
     document.getElementById('tab-analysis')!.classList.toggle('active', tab === 'analysis');
+    document.getElementById('tab-scene')!.classList.toggle('active', tab === 'scene');
+  }
+
+  private setupSceneSettings(): void {
+    const ambientSlider = document.getElementById('ambient-intensity') as HTMLInputElement;
+    const ambientVal = document.getElementById('ambient-intensity-val')!;
+    ambientSlider.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value);
+      ambientVal.textContent = val.toFixed(2);
+      this.renderer.setAmbientLightIntensity(val);
+    });
+
+    const keySlider = document.getElementById('key-intensity') as HTMLInputElement;
+    const keyVal = document.getElementById('key-intensity-val')!;
+    keySlider.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value);
+      keyVal.textContent = val.toFixed(2);
+      this.renderer.setKeyLightIntensity(val);
+    });
+
+    const keyColorPicker = document.getElementById('key-color') as HTMLInputElement;
+    keyColorPicker.addEventListener('input', (e) => {
+      const color = (e.target as HTMLInputElement).value;
+      this.renderer.setKeyLightColor(color);
+    });
+
+    const fillSlider = document.getElementById('fill-intensity') as HTMLInputElement;
+    const fillVal = document.getElementById('fill-intensity-val')!;
+    fillSlider.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value);
+      fillVal.textContent = val.toFixed(2);
+      this.renderer.setFillLightIntensity(val);
+    });
+
+    const pointSlider = document.getElementById('point-intensity') as HTMLInputElement;
+    const pointVal = document.getElementById('point-intensity-val')!;
+    pointSlider.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value);
+      pointVal.textContent = val.toFixed(2);
+      this.renderer.setPointLightIntensity(val);
+    });
+
+    const enableShadowsCheckbox = document.getElementById('enable-shadows') as HTMLInputElement;
+    enableShadowsCheckbox.addEventListener('change', (e) => {
+      const enabled = (e.target as HTMLInputElement).checked;
+      this.renderer.setShadowsEnabled(enabled);
+    });
+
+    const resetBtn = document.getElementById('reset-lights-btn') as HTMLButtonElement;
+    resetBtn.addEventListener('click', () => {
+      ambientSlider.value = '0.4';
+      ambientVal.textContent = '0.40';
+      this.renderer.setAmbientLightIntensity(0.4);
+
+      keySlider.value = '1.25';
+      keyVal.textContent = '1.25';
+      this.renderer.setKeyLightIntensity(1.25);
+
+      keyColorPicker.value = '#fff7e6';
+      this.renderer.setKeyLightColor('#fff7e6');
+
+      fillSlider.value = '0.45';
+      fillVal.textContent = '0.45';
+      this.renderer.setFillLightIntensity(0.45);
+
+      pointSlider.value = '0.8';
+      pointVal.textContent = '0.80';
+      this.renderer.setPointLightIntensity(0.8);
+
+      enableShadowsCheckbox.checked = true;
+      this.renderer.setShadowsEnabled(true);
+    });
   }
 
   private setupRulesToggle(): void {
