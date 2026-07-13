@@ -1,4 +1,4 @@
-import { GoGame } from './game';
+import { GoGame, GameMove } from './game';
 import { BoardRenderer } from './board';
 import { analyzePosition, checkServerHealth, AnalysisResponse } from './analysis';
 import { parseSgf, GameInfo, generateSgf } from './sgf';
@@ -17,6 +17,8 @@ class App {
   private topMovesDisplay!: HTMLElement;
   private serverOnline = false;
   private gameInfo: GameInfo | null = null;
+  private selectedRules: 'japanese' | 'chinese' = 'japanese';
+  private latestAnalysis: AnalysisResponse | null = null;
 
   constructor() {
     this.game = new GoGame(19);
@@ -28,12 +30,17 @@ class App {
     this.renderer.onMove = () => {
       this.updateUI();
       this.renderer.clearAnalysis();
+      if (!this.game.isReplayMode) {
+        this.hideReplayControls();
+      }
     };
     this.renderer.render();
     this.setupBoardSizeButtons();
     this.setupFileActions();
     this.setupReplayControls();
     this.checkServer();
+    this.setupTabs();
+    this.setupRulesToggle();
   }
 
   private async checkServer(): Promise<void> {
@@ -56,123 +63,165 @@ class App {
   private createUI(): void {
     const app = document.getElementById('app')!;
     app.innerHTML = `
-      <h1>Go Game</h1>
       <div class="game-container">
-        <canvas id="board"></canvas>
-        <div class="sidebar">
-          <div class="board-size-selector">
-            <button data-size="9">9x9</button>
-            <button data-size="13">13x13</button>
-            <button data-size="19" class="active">19x19</button>
+        <div class="board-section">
+          <h1>Go Game</h1>
+          <canvas id="board"></canvas>
+        </div>
+        <div class="sidebar" id="sidebar">
+          <div class="tabs-header">
+            <button class="tab-btn active" data-tab="game">Game</button>
+            <button class="tab-btn" data-tab="analysis">Analysis</button>
           </div>
 
-          <div class="game-info" id="game-info" style="display: none;">
-            <div class="player-info">
-              <div class="player black-player">
-                <div class="stone-icon black"></div>
-                <div class="player-details">
-                  <span class="player-name" id="black-name">Black</span>
-                  <span class="player-rank" id="black-rank"></span>
+          <div class="tab-content active" id="tab-game">
+            <div class="board-size-selector">
+              <button data-size="9">9x9</button>
+              <button data-size="13">13x13</button>
+              <button data-size="19" class="active">19x19</button>
+            </div>
+
+            <div class="game-info" id="game-info" style="display: none;">
+              <div class="player-info">
+                <div class="player black-player">
+                  <div class="stone-icon black"></div>
+                  <div class="player-details">
+                    <span class="player-name" id="black-name">Black</span>
+                    <span class="player-rank" id="black-rank"></span>
+                  </div>
+                </div>
+                <div class="player white-player">
+                  <div class="stone-icon white"></div>
+                  <div class="player-details">
+                    <span class="player-name" id="white-name">White</span>
+                    <span class="player-rank" id="white-rank"></span>
+                  </div>
                 </div>
               </div>
-              <div class="player white-player">
-                <div class="stone-icon white"></div>
-                <div class="player-details">
-                  <span class="player-name" id="white-name">White</span>
-                  <span class="player-rank" id="white-rank"></span>
+              <div class="game-details">
+                <div class="detail-row" id="result-row" style="display: none;">
+                  <span class="detail-label">Result</span>
+                  <span class="detail-value" id="game-result"></span>
+                </div>
+                <div class="detail-row" id="date-row" style="display: none;">
+                  <span class="detail-label">Date</span>
+                  <span class="detail-value" id="game-date"></span>
+                </div>
+                <div class="detail-row" id="event-row" style="display: none;">
+                  <span class="detail-label">Event</span>
+                  <span class="detail-value" id="game-event"></span>
                 </div>
               </div>
             </div>
-            <div class="game-details">
-              <div class="detail-row" id="result-row" style="display: none;">
-                <span class="detail-label">Result</span>
-                <span class="detail-value" id="game-result"></span>
-              </div>
-              <div class="detail-row" id="date-row" style="display: none;">
-                <span class="detail-label">Date</span>
-                <span class="detail-value" id="game-date"></span>
-              </div>
-              <div class="detail-row" id="event-row" style="display: none;">
-                <span class="detail-label">Event</span>
-                <span class="detail-value" id="game-event"></span>
-              </div>
-            </div>
-          </div>
 
-          <div class="replay-controls" id="replay-controls" style="display: none;">
-            <div class="move-counter">
-              Move <span id="current-move">0</span> / <span id="total-moves">0</span>
+            <div class="replay-controls" id="replay-controls" style="display: none;">
+              <div class="move-counter">
+                Move <span id="current-move">0</span> / <span id="total-moves">0</span>
+              </div>
+              <div class="replay-slider-container">
+                <input type="range" id="move-slider" min="0" max="0" value="0" class="move-slider" />
+              </div>
+              <div class="replay-buttons">
+                <button id="first-btn" title="First">⏮</button>
+                <button id="prev-btn" title="Previous">◀</button>
+                <button id="next-btn" title="Next">▶</button>
+                <button id="last-btn" title="Last">⏭</button>
+              </div>
+              <button class="btn-exit-replay" id="exit-replay-btn">Exit Replay</button>
             </div>
-            <div class="replay-slider-container">
-              <input type="range" id="move-slider" min="0" max="0" value="0" class="move-slider" />
-            </div>
-            <div class="replay-buttons">
-              <button id="first-btn" title="First">⏮</button>
-              <button id="prev-btn" title="Previous">◀</button>
-              <button id="next-btn" title="Next">▶</button>
-              <button id="last-btn" title="Last">⏭</button>
-            </div>
-            <button class="btn-exit-replay" id="exit-replay-btn">Exit Replay</button>
-          </div>
 
-          <div class="turn-indicator" id="turn-indicator">
-            <div class="stone-icon black"></div>
-            <span>Black's turn</span>
-          </div>
-          <div class="captures">
-            <h3>Captures</h3>
-            <div class="capture-row">
+            <div class="turn-indicator" id="turn-indicator">
               <div class="stone-icon black"></div>
-              <span id="black-captures">0</span>
+              <span>Black's turn</span>
             </div>
-            <div class="capture-row">
-              <div class="stone-icon white"></div>
-              <span id="white-captures">0</span>
-            </div>
-          </div>
-          <div class="buttons">
-            <button class="btn-pass" id="pass-btn">Pass</button>
-            <button class="btn-reset" id="reset-btn">Reset</button>
-          </div>
-
-          <div class="load-section">
-            <h3>SGF Files</h3>
-            <div class="sgf-actions">
-              <label class="btn-load" for="sgf-input">
-                Load SGF File
-                <input type="file" id="sgf-input" accept=".sgf" style="display: none;" />
-              </label>
-              <button class="btn-save-sgf" id="save-sgf-btn">Save SGF File</button>
-            </div>
-          </div>
-
-          <div class="analysis-section">
-            <div class="analysis-header">
-              <h3>Analysis</h3>
-              <span id="server-status" class="status-badge offline">Offline</span>
-            </div>
-            <button class="btn-analyze" id="analyze-btn" disabled>Analyze Position</button>
-            <div class="analysis-results" id="analysis-results" style="display: none;">
-              <div class="winrate-bar" id="winrate-bar">
-                <span class="winrate-black" id="winrate-black">B 50%</span>
-                <span class="winrate-white" id="winrate-white">W 50%</span>
+            <div class="captures">
+              <h3>Captures</h3>
+              <div class="capture-row">
+                <div class="stone-icon black"></div>
+                <span id="black-captures">0</span>
               </div>
-              <div class="top-moves" id="top-moves"></div>
+              <div class="capture-row">
+                <div class="stone-icon white"></div>
+                <span id="white-captures">0</span>
+              </div>
+            </div>
+            <div class="buttons">
+              <button class="btn-pass" id="pass-btn">Pass</button>
+              <button class="btn-reset" id="reset-btn">Reset</button>
+              <button class="btn-review" id="review-btn" disabled>Review</button>
+            </div>
+
+            <div class="load-section">
+              <h3>SGF Files</h3>
+              <div class="sgf-actions">
+                <label class="btn-load" for="sgf-input">
+                  Load SGF File
+                  <input type="file" id="sgf-input" accept=".sgf" style="display: none;" />
+                </label>
+                <button class="btn-save-sgf" id="save-sgf-btn">Save SGF File</button>
+              </div>
+            </div>
+
+            <div class="settings">
+              <h3>Settings</h3>
+              <label class="toggle-setting">
+                <span>Show last move</span>
+                <input type="checkbox" id="show-last-move" checked />
+                <div class="toggle-switch"></div>
+              </label>
             </div>
           </div>
 
-          <div class="settings">
-            <h3>Settings</h3>
-            <label class="toggle-setting">
-              <span>Show last move</span>
-              <input type="checkbox" id="show-last-move" checked />
-              <div class="toggle-switch"></div>
-            </label>
-            <label class="toggle-setting">
-              <span>Show territory</span>
-              <input type="checkbox" id="show-ownership" />
-              <div class="toggle-switch"></div>
-            </label>
+          <div class="tab-content" id="tab-analysis">
+            <div class="analysis-section" style="margin-top: 0; padding-top: 0; border-top: none;">
+              <div class="analysis-header">
+                <h3>KataGo Engine</h3>
+                <span id="server-status" class="status-badge offline">Offline</span>
+              </div>
+              <button class="btn-analyze" id="analyze-btn" disabled>Analyze Position</button>
+              <div class="analysis-results" id="analysis-results" style="display: none;">
+                <div class="winrate-bar" id="winrate-bar">
+                  <span class="winrate-black" id="winrate-black">B 50%</span>
+                  <span class="winrate-white" id="winrate-white">W 50%</span>
+                </div>
+                
+                <div class="territory-estimates" id="territory-estimates" style="display: none;">
+                  <div class="estimates-header">
+                    <h4>Territory Estimates</h4>
+                    <div class="rules-toggle">
+                      <button class="rules-tab-btn active" id="btn-rules-japanese">Japanese</button>
+                      <button class="rules-tab-btn" id="btn-rules-chinese">Chinese</button>
+                    </div>
+                  </div>
+                  <div class="estimates-body">
+                    <div class="estimate-row">
+                      <span class="est-label">Black Score</span>
+                      <span class="est-value" id="est-black-val">0.0</span>
+                    </div>
+                    <div class="estimate-row">
+                      <span class="est-label">White Score</span>
+                      <span class="est-value" id="est-white-val">0.0</span>
+                    </div>
+                    <div class="estimate-row result-row">
+                      <span class="est-label">Estimated Lead</span>
+                      <span class="est-value" id="est-result-val">0.0</span>
+                    </div>
+                    <div class="estimate-details" id="est-details-text"></div>
+                  </div>
+                </div>
+
+                <div class="top-moves" id="top-moves"></div>
+              </div>
+            </div>
+
+            <div class="settings" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #444;">
+              <h3>Analysis Settings</h3>
+              <label class="toggle-setting">
+                <span>Show territory</span>
+                <input type="checkbox" id="show-ownership" />
+                <div class="toggle-switch"></div>
+              </label>
+            </div>
           </div>
         </div>
       </div>
@@ -339,6 +388,10 @@ class App {
   }
 
   private setupReplayControls(): void {
+    document.getElementById('review-btn')!.addEventListener('click', () => {
+      this.enterReplayForCurrentGame();
+    });
+
     document.getElementById('first-btn')!.addEventListener('click', () => {
       this.game.firstMove();
       this.updateReplayUI();
@@ -422,7 +475,8 @@ class App {
 
     try {
       const moves = this.game.getKataGoMoves();
-      const result = await analyzePosition(this.game.size, moves);
+      const komi = this.gameInfo?.komi !== undefined ? this.gameInfo.komi : 6.5;
+      const result = await analyzePosition(this.game.size, moves, komi);
       this.showAnalysis(result);
       this.renderer.setAnalysis(result);
     } catch (error) {
@@ -436,6 +490,7 @@ class App {
   }
 
   private showAnalysis(result: AnalysisResponse): void {
+    this.latestAnalysis = result;
     this.winrateDisplay.style.display = 'block';
 
     const blackWinrate = result.winrate * 100;
@@ -461,10 +516,14 @@ class App {
         `;
       })
       .join('');
+
+    this.updateScoreEstimates();
   }
 
   private hideAnalysis(): void {
     this.winrateDisplay.style.display = 'none';
+    this.latestAnalysis = null;
+    this.updateScoreEstimates();
   }
 
   private setupBoardSizeButtons(): void {
@@ -489,6 +548,9 @@ class App {
     this.renderer.onMove = () => {
       this.updateUI();
       this.renderer.clearAnalysis();
+      if (!this.game.isReplayMode) {
+        this.hideReplayControls();
+      }
     };
     this.renderer.render();
     this.updateUI();
@@ -501,6 +563,163 @@ class App {
     this.stoneIcon.className = `stone-icon ${player}`;
     this.blackCaptures.textContent = this.game.captures.black.toString();
     this.whiteCaptures.textContent = this.game.captures.white.toString();
+
+    const reviewBtn = document.getElementById('review-btn') as HTMLButtonElement | null;
+    if (reviewBtn) {
+      reviewBtn.disabled = this.game.moveHistory.length === 0;
+    }
+  }
+
+  private setupTabs(): void {
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    tabButtons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const tab = (btn as HTMLElement).dataset.tab as 'game' | 'analysis';
+        this.switchTab(tab);
+      });
+    });
+  }
+
+  private switchTab(tab: 'game' | 'analysis'): void {
+    // Update button states
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    tabButtons.forEach((btn) => {
+      const isCurrent = (btn as HTMLElement).dataset.tab === tab;
+      btn.classList.toggle('active', isCurrent);
+    });
+
+    // Update content states
+    document.getElementById('tab-game')!.classList.toggle('active', tab === 'game');
+    document.getElementById('tab-analysis')!.classList.toggle('active', tab === 'analysis');
+  }
+
+  private setupRulesToggle(): void {
+    const btnJapanese = document.getElementById('btn-rules-japanese')!;
+    const btnChinese = document.getElementById('btn-rules-chinese')!;
+
+    btnJapanese.addEventListener('click', () => {
+      this.selectedRules = 'japanese';
+      btnJapanese.classList.add('active');
+      btnChinese.classList.remove('active');
+      this.updateScoreEstimates();
+    });
+
+    btnChinese.addEventListener('click', () => {
+      this.selectedRules = 'chinese';
+      btnChinese.classList.add('active');
+      btnJapanese.classList.remove('active');
+      this.updateScoreEstimates();
+    });
+  }
+
+  private updateScoreEstimates(): void {
+    const estimatesContainer = document.getElementById('territory-estimates')!;
+    if (!this.latestAnalysis || !this.latestAnalysis.ownership) {
+      estimatesContainer.style.display = 'none';
+      return;
+    }
+
+    estimatesContainer.style.display = 'block';
+
+    const ownership = this.latestAnalysis.ownership;
+    const size = this.game.size;
+    const komi = this.gameInfo?.komi !== undefined ? this.gameInfo.komi : 6.5;
+
+    let bTerritory = 0;
+    let wTerritory = 0;
+    let bDeadStones = 0;
+    let wDeadStones = 0;
+    let bArea = 0;
+    let wArea = 0;
+
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const idx = y * size + x;
+        const val = ownership[idx];
+        const pB = Math.max(0, val);
+        const pW = Math.max(0, -val);
+        
+        const stone = this.game.getStone(x, y);
+        
+        // Chinese Area Scoring
+        bArea += pB;
+        wArea += pW;
+        
+        // Japanese / Korean Territory Scoring
+        if (stone === null) {
+          bTerritory += pB;
+          wTerritory += pW;
+        } else if (stone === 'white') {
+          bTerritory += pB; 
+          bDeadStones += pB; 
+        } else if (stone === 'black') {
+          wTerritory += pW; 
+          wDeadStones += pW; 
+        }
+      }
+    }
+
+    const bPrisoners = this.game.captures.white + bDeadStones;
+    const wPrisoners = this.game.captures.black + wDeadStones;
+
+    const bValSpan = document.getElementById('est-black-val')!;
+    const wValSpan = document.getElementById('est-white-val')!;
+    const resValSpan = document.getElementById('est-result-val')!;
+    const detailsDiv = document.getElementById('est-details-text')!;
+
+    if (this.selectedRules === 'japanese') {
+      const bTotal = bTerritory + bPrisoners;
+      const wTotal = wTerritory + wPrisoners + komi;
+      const diff = bTotal - wTotal;
+
+      bValSpan.textContent = bTotal.toFixed(1);
+      wValSpan.textContent = wTotal.toFixed(1);
+      resValSpan.textContent = diff > 0 ? `B+${diff.toFixed(1)}` : `W+${Math.abs(diff).toFixed(1)}`;
+      detailsDiv.textContent = `B: ${bTerritory.toFixed(1)} terr + ${bPrisoners.toFixed(1)} pris | W: ${wTerritory.toFixed(1)} terr + ${wPrisoners.toFixed(1)} pris + ${komi.toFixed(1)} komi`;
+    } else {
+      const bTotal = bArea;
+      const wTotal = wArea + komi;
+      const diff = bTotal - wTotal;
+
+      bValSpan.textContent = bTotal.toFixed(1);
+      wValSpan.textContent = wTotal.toFixed(1);
+      resValSpan.textContent = diff > 0 ? `B+${diff.toFixed(1)}` : `W+${Math.abs(diff).toFixed(1)}`;
+      detailsDiv.textContent = `B: ${bArea.toFixed(1)} area | W: ${wArea.toFixed(1)} area + ${komi.toFixed(1)} komi`;
+    }
+  }
+  private enterReplayForCurrentGame(): void {
+    if (this.game.isReplayMode) return;
+    const history = this.game.moveHistory;
+    const colors = this.game.moveColors;
+    if (history.length === 0) return;
+
+    const gameMoves: GameMove[] = history.map((pos, i) => ({
+      color: colors[i],
+      x: pos.x,
+      y: pos.y
+    }));
+
+    if (!this.gameInfo) {
+      this.gameInfo = {
+        blackPlayer: 'Black',
+        whitePlayer: 'White',
+        blackRank: '',
+        whiteRank: '',
+        date: new Date().toISOString().slice(0, 10),
+        result: '',
+        komi: 6.5,
+        boardSize: this.game.size,
+        event: 'Local Game',
+        round: ''
+      };
+    }
+
+    this.game.loadGame(gameMoves);
+    this.showGameInfo();
+    this.showReplayControls();
+    this.game.lastMoveReplay();
+    this.updateReplayUI();
+    this.renderer.render();
   }
 }
 

@@ -8,17 +8,16 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: #2c2c2c;
   min-height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 20px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
 #app {
+  width: 100vw;
+  height: 100vh;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 20px;
 }
 
 h1 {
@@ -29,8 +28,22 @@ h1 {
 
 .game-container {
   display: flex;
-  gap: 30px;
-  align-items: flex-start;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.board-section {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  box-sizing: border-box;
+  overflow: auto;
 }
 
 #board {
@@ -39,32 +52,82 @@ h1 {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
+/* Sidebar Panel - Compact Version */
 .sidebar {
   background: linear-gradient(145deg, #3a3a3a, #2d2d2d);
-  padding: 28px;
-  border-radius: 16px;
-  min-width: 200px;
+  padding: 18px;
+  width: 340px;
+  height: 100%;
   color: #fff;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-sizing: border-box;
+  overflow-y: auto;
+  flex-shrink: 0;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
+  font-size: 12px;
+}
+
+/* Tabs Layout */
+.tabs-header {
+  display: flex;
+  gap: 4px;
+  background: #252525;
+  padding: 4px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 8px 10px;
+  background: transparent;
+  color: #888;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+  border: none;
+}
+
+.tab-btn:hover {
+  color: #fff;
+  background: #333;
+}
+
+.tab-btn.active {
+  background: #2980b9;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(41, 128, 185, 0.4);
+}
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .turn-indicator {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin-bottom: 24px;
-  padding: 14px 16px;
+  gap: 10px;
+  padding: 10px 12px;
   background: #252525;
-  border-radius: 12px;
-  font-size: 16px;
+  border-radius: 8px;
+  font-size: 13px;
   font-weight: 500;
 }
 
 .stone-icon {
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.4);
+  box-shadow: 1px 1px 4px rgba(0, 0, 0, 0.4);
   flex-shrink: 0;
 }
 
@@ -76,14 +139,10 @@ h1 {
   background: radial-gradient(circle at 30% 30%, #fff, #ccc);
 }
 
-.captures {
-  margin-bottom: 24px;
-}
-
 .captures h3 {
-  font-size: 11px;
+  font-size: 10px;
   color: #666;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
   text-transform: uppercase;
   letter-spacing: 1.5px;
   font-weight: 600;
@@ -92,35 +151,35 @@ h1 {
 .capture-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 10px;
-  padding: 10px 14px;
+  gap: 10px;
+  margin-bottom: 6px;
+  padding: 6px 12px;
   background: #252525;
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
 .capture-row .stone-icon {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
 }
 
 .capture-row span {
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 600;
   color: #fff;
 }
 
 .buttons {
   display: flex;
-  gap: 10px;
+  gap: 8px;
 }
 
 button {
-  padding: 12px 20px;
-  font-size: 13px;
+  padding: 10px 14px;
+  font-size: 12px;
   font-weight: 600;
   border: none;
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
   flex: 1;
@@ -149,23 +208,36 @@ button:active {
   box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
 }
 
+.btn-review {
+  background: linear-gradient(135deg, #f39c12, #d35400);
+  color: #fff;
+}
+
+.btn-review:hover:not(:disabled) {
+  box-shadow: 0 4px 12px rgba(243, 156, 18, 0.4);
+}
+
+.btn-review:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .board-size-selector {
   display: flex;
-  gap: 6px;
-  margin-bottom: 24px;
+  gap: 4px;
   background: #252525;
   padding: 4px;
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
 .board-size-selector button {
   flex: 1;
-  padding: 8px 12px;
+  padding: 6px 10px;
   background: transparent;
   color: #888;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: 6px;
   transition: all 0.2s;
 }
 
@@ -181,20 +253,19 @@ button:active {
 }
 
 .analysis-section {
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid #444;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .analysis-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 14px;
 }
 
 .analysis-header h3 {
-  font-size: 11px;
+  font-size: 10px;
   color: #666;
   text-transform: uppercase;
   letter-spacing: 1.5px;
@@ -202,9 +273,9 @@ button:active {
 }
 
 .status-badge {
-  font-size: 10px;
-  padding: 4px 8px;
-  border-radius: 10px;
+  font-size: 9px;
+  padding: 3px 6px;
+  border-radius: 6px;
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -221,12 +292,11 @@ button:active {
 
 .btn-analyze {
   width: 100%;
-  padding: 12px;
+  padding: 10px;
   background: linear-gradient(135deg, #3498db, #2980b9);
   color: #fff;
   font-weight: 600;
-  border-radius: 10px;
-  margin-bottom: 14px;
+  border-radius: 8px;
 }
 
 .btn-analyze:hover:not(:disabled) {
@@ -240,21 +310,21 @@ button:active {
 
 .analysis-results {
   background: #252525;
-  border-radius: 10px;
-  padding: 14px;
+  border-radius: 8px;
+  padding: 12px;
 }
 
 .winrate-bar {
-  height: 32px;
+  height: 28px;
   background: linear-gradient(90deg, #222 50%, #eee 50%);
-  border-radius: 8px;
+  border-radius: 6px;
   position: relative;
   overflow: hidden;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 12px;
+  padding: 0 10px;
 }
 
 .winrate-fill {
@@ -262,10 +332,10 @@ button:active {
 }
 
 .winrate-black, .winrate-white {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   z-index: 1;
-  padding: 4px 10px;
+  padding: 3px 8px;
   border-radius: 4px;
 }
 
@@ -282,26 +352,26 @@ button:active {
 .top-moves {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .move-suggestion {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 13px;
+  gap: 8px;
+  font-size: 12px;
 }
 
 .move-rank {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   font-weight: 700;
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .move-coord {
@@ -312,19 +382,13 @@ button:active {
 
 .move-winrate {
   color: #888;
-  font-size: 12px;
-}
-
-.settings {
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid #444;
+  font-size: 11px;
 }
 
 .settings h3 {
-  font-size: 11px;
+  font-size: 10px;
   color: #666;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
   text-transform: uppercase;
   letter-spacing: 1.5px;
   font-weight: 600;
@@ -335,11 +399,11 @@ button:active {
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   color: #aaa;
-  padding: 10px 14px;
+  padding: 8px 12px;
   background: #252525;
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
 .toggle-setting input[type="checkbox"] {
@@ -347,10 +411,10 @@ button:active {
 }
 
 .toggle-switch {
-  width: 44px;
-  height: 24px;
+  width: 36px;
+  height: 20px;
   background: #444;
-  border-radius: 12px;
+  border-radius: 10px;
   position: relative;
   transition: background 0.2s;
 }
@@ -358,8 +422,8 @@ button:active {
 .toggle-switch::after {
   content: '';
   position: absolute;
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   background: #fff;
   border-radius: 50%;
   top: 3px;
@@ -372,32 +436,31 @@ button:active {
 }
 
 .toggle-setting input:checked + .toggle-switch::after {
-  transform: translateX(20px);
+  transform: translateX(16px);
 }
 
 .toggle-setting + .toggle-setting {
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 /* Game Info */
 .game-info {
   background: #252525;
-  border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 20px;
+  border-radius: 8px;
+  padding: 12px;
 }
 
 .player-info {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .player {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .player-details {
@@ -407,25 +470,25 @@ button:active {
 
 .player-name {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13px;
   color: #fff;
 }
 
 .player-rank {
-  font-size: 12px;
+  font-size: 11px;
   color: #888;
 }
 
 .game-details {
   border-top: 1px solid #333;
-  padding-top: 12px;
+  padding-top: 8px;
 }
 
 .detail-row {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
-  margin-bottom: 6px;
+  font-size: 11px;
+  margin-bottom: 4px;
 }
 
 .detail-label {
@@ -440,16 +503,15 @@ button:active {
 /* Replay Controls */
 .replay-controls {
   background: #252525;
-  border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 20px;
+  border-radius: 8px;
+  padding: 12px;
 }
 
 .move-counter {
   text-align: center;
-  font-size: 14px;
+  font-size: 12px;
   color: #ccc;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .move-counter span {
@@ -458,12 +520,12 @@ button:active {
 }
 
 .replay-slider-container {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .move-slider {
   width: 100%;
-  height: 6px;
+  height: 5px;
   border-radius: 3px;
   background: #444;
   outline: none;
@@ -473,37 +535,27 @@ button:active {
 
 .move-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: #2980b9;
   cursor: pointer;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-}
-
-.move-slider::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #2980b9;
-  cursor: pointer;
-  border: none;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 .replay-buttons {
   display: flex;
   justify-content: center;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
 .replay-buttons button {
-  width: 44px;
-  height: 36px;
+  width: 36px;
+  height: 30px;
   background: #444;
   color: #fff;
-  font-size: 14px;
+  font-size: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -517,8 +569,8 @@ button:active {
   width: 100%;
   background: #555;
   color: #fff;
-  padding: 10px;
-  font-size: 13px;
+  padding: 8px;
+  font-size: 12px;
 }
 
 .btn-exit-replay:hover {
@@ -527,15 +579,14 @@ button:active {
 
 /* Load Section */
 .load-section {
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid #444;
+  display: flex;
+  flex-direction: column;
 }
 
 .load-section h3 {
-  font-size: 11px;
+  font-size: 10px;
   color: #666;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   text-transform: uppercase;
   letter-spacing: 1.5px;
   font-weight: 600;
@@ -544,12 +595,12 @@ button:active {
 .btn-load {
   display: block;
   width: 100%;
-  padding: 12px;
+  padding: 10px;
   background: linear-gradient(135deg, #8e44ad, #9b59b6);
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  border-radius: 10px;
+  border-radius: 8px;
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
@@ -562,13 +613,13 @@ button:active {
 .btn-save-sgf {
   display: block;
   width: 100%;
-  padding: 12px;
-  margin-top: 10px;
+  padding: 10px;
+  margin-top: 8px;
   background: linear-gradient(135deg, #27ae60, #2ecc71);
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  border-radius: 10px;
+  border-radius: 8px;
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
@@ -576,6 +627,87 @@ button:active {
 
 .btn-save-sgf:hover {
   box-shadow: 0 4px 12px rgba(39, 174, 96, 0.4);
+}
+
+/* Territory Estimates Section */
+.territory-estimates {
+  background: #1e1e1e;
+  border-radius: 8px;
+  padding: 10px;
+  margin-top: 10px;
+  margin-bottom: 10px;
+  border: 1px solid #333;
+}
+
+.estimates-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.estimates-header h4 {
+  font-size: 11px;
+  color: #ccc;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.rules-toggle {
+  display: flex;
+  gap: 2px;
+  background: #252525;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.rules-tab-btn {
+  padding: 4px 8px;
+  font-size: 10px;
+  background: transparent;
+  color: #888;
+  border-radius: 3px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s;
+  flex: none;
+}
+
+.rules-tab-btn.active {
+  background: #2980b9;
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(41, 128, 185, 0.4);
+}
+
+.estimates-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.estimate-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #aaa;
+}
+
+.estimate-row.result-row {
+  border-top: 1px solid #333;
+  margin-top: 4px;
+  padding-top: 4px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.estimate-details {
+  font-size: 9px;
+  color: #666;
+  text-align: center;
+  margin-top: 4px;
+  font-style: italic;
 }
 
 

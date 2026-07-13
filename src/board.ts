@@ -32,8 +32,14 @@ export class BoardRenderer {
   ];
 
   constructor(canvas: HTMLCanvasElement, game: GoGame) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d')!;
+    // Clone canvas to remove existing event listeners from previous renderers
+    const newCanvas = canvas.cloneNode(true) as HTMLCanvasElement;
+    if (canvas.parentNode) {
+      canvas.parentNode.replaceChild(newCanvas, canvas);
+    }
+    
+    this.canvas = newCanvas;
+    this.ctx = newCanvas.getContext('2d')!;
     this.game = game;
     this.setupCanvas();
     this.setupEventListeners();
@@ -71,9 +77,14 @@ export class BoardRenderer {
 
   private handleClick(e: MouseEvent): void {
     const pos = this.getGridPosition(e.clientX, e.clientY);
-    if (pos && this.game.placeStone(pos.x, pos.y)) {
-      this.render();
-      this.onMove?.();
+    if (pos) {
+      if (this.game.isReplayMode) {
+        this.game.exitReplayMode();
+      }
+      if (this.game.placeStone(pos.x, pos.y)) {
+        this.render();
+        this.onMove?.();
+      }
     }
   }
 

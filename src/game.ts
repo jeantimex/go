@@ -270,9 +270,26 @@ export class GoGame {
   }
 
   exitReplayMode(): void {
+    if (!this.isReplayMode) return;
+    
+    // Save history up to the current replayed move
+    const targetHistory = this.moveHistory.slice(0, this.currentMoveIndex + 1);
+    
+    // Reset board and replay the moves to restore board state and ko position
+    this.board = Array.from({ length: this.size }, () => Array(this.size).fill(null));
+    this.currentPlayer = 'black';
+    this.lastMove = null;
+    this.koPosition = null;
+    this.captures = { black: 0, white: 0 };
+    this.moveHistory = [];
+    this.moveColors = [];
+    this.isReplayMode = false;
+
+    for (let i = 0; i < targetHistory.length; i++) {
+      this.placeStone(targetHistory[i].x, targetHistory[i].y);
+    }
+    
     this.loadedMoves = [];
     this.currentMoveIndex = -1;
-    this.isReplayMode = false;
-    this.reset();
   }
 }
