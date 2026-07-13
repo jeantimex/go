@@ -19,6 +19,7 @@
     "vite": "^6.3.5"
   },
   "dependencies": {
+    "cannon-es": "^0.20.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "three": "^0.185.1"

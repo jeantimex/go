@@ -3,6 +3,7 @@ import { AnalysisResponse } from './analysis';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import * as CANNON from 'cannon-es';
 
 export type LastMoveMarkerType = 'none' | 'circle' | 'triangle' | 'number';
 
@@ -62,6 +63,16 @@ export class BoardRenderer {
   private capturedStoneMeshes: THREE.Mesh[] = [];
   private lidScatterRadius = 1.0;
 
+  // Cannon.js Physics
+  private world!: CANNON.World;
+  private blackLidBody: CANNON.Body | null = null;
+  private whiteLidBody: CANNON.Body | null = null;
+  private capturedStones: {
+    mesh: THREE.Mesh;
+    body: CANNON.Body;
+    lidType: 'black' | 'white';
+  }[] = [];
+
   // Event Listeners references for cleanup
   private clickListener!: (e: MouseEvent) => void;
   private mousemoveListener!: (e: MouseEvent) => void;
@@ -93,6 +104,12 @@ export class BoardRenderer {
   private initThree(): void {
     const width = this.canvas.clientWidth || 600;
     const height = this.canvas.clientHeight || 600;
+
+    // Initialize Cannon.js physics world
+    this.world = new CANNON.World();
+    this.world.gravity.set(0, -9.82, 0); // standard gravity
+    (this.world.solver as any).iterations = 10;
+    this.world.broadphase = new CANNON.SAPBroadphase(this.world);
 
     this.scene = new THREE.Scene();
     
@@ -348,6 +365,30 @@ export class BoardRenderer {
           };
           if (this.blackLidCenter) createDebugCircle(this.blackLidCenter, this.blackLidTopY);
           if (this.whiteLidCenter) createDebugCircle(this.whiteLidCenter, this.whiteLidTopY);
+
+          // Create Cannon.js static bodies representing the lid surfaces for collision
+          const lidShape = new CANNON.Box(new CANNON.Vec3(1.5, 0.05, 1.5)); // half-extents
+          const lidMaterial = new CANNON.Material({ friction: 0.1, restitution: 0.2 });
+
+          if (this.blackLidCenter) {
+            this.blackLidBody = new CANNON.Body({
+              mass: 0, // static
+              shape: lidShape,
+              position: new CANNON.Vec3(this.blackLidCenter.x, this.blackLidTopY - 0.05, this.blackLidCenter.z),
+              material: lidMaterial
+            });
+            this.world.addBody(this.blackLidBody);
+          }
+
+          if (this.whiteLidCenter) {
+            this.whiteLidBody = new CANNON.Body({
+              mass: 0, // static
+              shape: lidShape,
+              position: new CANNON.Vec3(this.whiteLidCenter.x, this.whiteLidTopY - 0.05, this.whiteLidCenter.z),
+              material: lidMaterial
+            });
+            this.world.addBody(this.whiteLidBody);
+          }
         }
 
         // Traverse scene to set shadow flags & hide board stones and lid stones
@@ -427,6 +468,44 @@ export class BoardRenderer {
 
     if (this.controls) {
       this.controls.update();
+    }
+
+    // Step physics world and synchronize stone positions
+    if (this.world) {
+      // Use fixed time step for deterministic and stable simulation (1/60th second)
+      this.world.fixedStep();
+
+      // Sync three.js mesh positions and rotations with Cannon.js bodies
+      this.capturedStones.forEach(stone => {
+        // Circular bounding constraint (keep stones inside the lid rim)
+        const center = stone.lidType === 'black' ? this.blackLidCenter : this.whiteLidCenter;
+        if (center) {
+          const dx = stone.body.position.x - center.x;
+          const dz = stone.body.position.z - center.z;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+
+          // Subtract 0.39 (the actual visual horizontal radius of the stone) to keep the stone strictly inside the green circle
+          const maxRadius = this.lidScatterRadius - 0.39;
+          if (dist > maxRadius) {
+            const angle = Math.atan2(dz, dx);
+            stone.body.position.x = center.x + Math.cos(angle) * maxRadius;
+            stone.body.position.z = center.z + Math.sin(angle) * maxRadius;
+
+            // Reflect the velocity along the normal vector of the boundary (bounce)
+            const normalX = Math.cos(angle);
+            const normalZ = Math.sin(angle);
+            const dot = stone.body.velocity.x * normalX + stone.body.velocity.z * normalZ;
+            if (dot > 0) { // moving outwards
+              stone.body.velocity.x -= 1.4 * dot * normalX; // bounce back with 0.4 coefficient of restitution
+              stone.body.velocity.z -= 1.4 * dot * normalZ;
+            }
+          }
+        }
+
+        // Copy positions to Three.js mesh, subtracting 0.20 from Y to account for the physical sphere vs. squashed visual mesh offset
+        stone.mesh.position.set(stone.body.position.x, stone.body.position.y - 0.20, stone.body.position.z);
+        stone.mesh.quaternion.copy(stone.body.quaternion as any);
+      });
     }
 
     this.renderer.render(this.scene, this.camera);
@@ -1075,68 +1154,102 @@ export class BoardRenderer {
   }
 
   private updateCapturedStones3D(): void {
-    // Clear old captured stone meshes
-    this.capturedStoneMeshes.forEach(mesh => {
-      this.scene.remove(mesh);
-      if (mesh.geometry) mesh.geometry.dispose();
-    });
-    this.capturedStoneMeshes = [];
-
-    if (!this.isGltfLoaded || !this.blackLidCenter || !this.whiteLidCenter) return;
-
-    // Black captured white stones (placed on Black Lid)
-    const whiteCapturedCount = this.game.captures.black;
-    for (let i = 0; i < whiteCapturedCount; i++) {
-      const mesh = new THREE.Mesh(this.stoneGeom, this.whiteMat);
-      mesh.position.copy(this.getCapturedStonePosition(i, this.blackLidCenter, this.blackLidTopY));
-      const scale = 0.85; // Captured stones are slightly smaller
-      mesh.scale.set(scale, scale, scale);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      this.scene.add(mesh);
-      this.capturedStoneMeshes.push(mesh);
-    }
-
-    // White captured black stones (placed on White Lid)
-    const blackCapturedCount = this.game.captures.white;
-    for (let i = 0; i < blackCapturedCount; i++) {
-      const mesh = new THREE.Mesh(this.stoneGeom, this.blackMat);
-      mesh.position.copy(this.getCapturedStonePosition(i, this.whiteLidCenter, this.whiteLidTopY));
-      const scale = 0.85; // Captured stones are slightly smaller
-      mesh.scale.set(scale, scale, scale);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      this.scene.add(mesh);
-      this.capturedStoneMeshes.push(mesh);
-    }
+    this.syncCapturedStonesPhysics();
   }
 
-  private getCapturedStonePosition(index: number, lidCenter: THREE.Vector3, lidTopY: number): THREE.Vector3 {
-    // Generate deterministic pseudo-random positions scattered across the lid surface
-    // Using sine/cosine hash functions with large prime multipliers for high-frequency pseudo-randomness
-    const rSeed = Math.sin(index * 724.89 + 12.34); // value in [-1, 1]
-    const thetaSeed = Math.cos(index * 983.21 + 56.78); // value in [-1, 1]
+  private syncCapturedStonesPhysics(): void {
+    if (!this.isGltfLoaded || !this.blackLidCenter || !this.whiteLidCenter || !this.world) return;
 
-    // Map rSeed to a radius. Using Math.sqrt of a uniform variable gives a uniform area distribution in a circle
-    const u = (rSeed + 1) / 2; // uniform [0, 1]
-    const radius = 0.2 + (this.lidScatterRadius - 0.2) * Math.sqrt(u); // distributed radius scaled to the true flat top bounds
+    // Filter current stones by lid type
+    const currentOnBlackLid = this.capturedStones.filter(s => s.lidType === 'black');
+    const currentOnWhiteLid = this.capturedStones.filter(s => s.lidType === 'white');
 
-    // Map thetaSeed to an angle in [0, 2*PI]
-    const angle = ((thetaSeed + 1) / 2) * Math.PI * 2;
+    const targetWhiteCaptured = this.game.captures.black; // white stones on black lid
+    const targetBlackCaptured = this.game.captures.white; // black stones on white lid
 
-    // Small height offset for resting naturally on the lid
-    const yOffset = 0.02 + (Math.sin(index * 500) * 0.005);
+    // 1. Sync stones on Black Lid (white captured stones)
+    this.syncLidStones(currentOnBlackLid, targetWhiteCaptured, 'black', this.blackLidCenter, this.blackLidTopY, this.whiteMat);
 
-    // If there are too many captured stones, we can stack them on top of each other
-    // For every 15 stones, start a new layer slightly elevated
-    const layer = Math.floor(index / 15);
-    const stackY = layer * 0.08;
+    // 2. Sync stones on White Lid (black captured stones)
+    this.syncLidStones(currentOnWhiteLid, targetBlackCaptured, 'white', this.whiteLidCenter, this.whiteLidTopY, this.blackMat);
+  }
 
-    return new THREE.Vector3(
-      lidCenter.x + Math.cos(angle) * radius,
-      lidTopY + yOffset + stackY,
-      lidCenter.z + Math.sin(angle) * radius
-    );
+  private syncLidStones(
+    currentStones: typeof this.capturedStones,
+    targetCount: number,
+    lidType: 'black' | 'white',
+    lidCenter: THREE.Vector3,
+    lidTopY: number,
+    material: THREE.MeshStandardMaterial
+  ): void {
+    if (currentStones.length < targetCount) {
+      // Spawn new stones!
+      const spawnCount = targetCount - currentStones.length;
+      for (let i = 0; i < spawnCount; i++) {
+        // Spawn stone mesh
+        const mesh = new THREE.Mesh(this.stoneGeom, material);
+        const scale = 0.85; // Captured stones are slightly smaller
+        mesh.scale.set(scale, scale, scale);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        this.scene.add(mesh);
+
+        // Spawn position: high above the lid to fall down dynamically
+        // Randomly scatter spawn position near the center of the lid
+        const spawnAngle = Math.random() * Math.PI * 2;
+        const spawnRadius = Math.random() * (this.lidScatterRadius * 0.4); // spawn near the center so they fall cleanly
+        const spawnX = lidCenter.x + Math.cos(spawnAngle) * spawnRadius;
+        const spawnZ = lidCenter.z + Math.sin(spawnAngle) * spawnRadius;
+        const spawnY = lidTopY + 2.0 + (i * 0.3); // spawn stacked high above
+
+        mesh.position.set(spawnX, spawnY - 0.20, spawnZ);
+
+        // Create Cannon.js physical body (Sphere shape is simplest and most stable)
+        // A sphere shape with radius 0.35 matches the stone size and prevents them from overlapping or floating
+        const stoneShape = new CANNON.Sphere(0.35);
+        const body = new CANNON.Body({
+          mass: 0.1, // lightweight
+          shape: stoneShape,
+          position: new CANNON.Vec3(spawnX, spawnY, spawnZ),
+          material: new CANNON.Material({ friction: 0.15, restitution: 0.25 }) // stable physics friction/restitution
+        });
+
+        // Add a slight initial random rotation/velocity to make the drop look cool
+        body.angularVelocity.set(
+          (Math.random() - 0.5) * 5,
+          (Math.random() - 0.5) * 5,
+          (Math.random() - 0.5) * 5
+        );
+        body.velocity.set(
+          (Math.random() - 0.5) * 0.5,
+          -1.0, // moving down
+          (Math.random() - 0.5) * 0.5
+        );
+
+        this.world.addBody(body);
+        
+        const stoneData = { mesh, body, lidType };
+        this.capturedStones.push(stoneData);
+      }
+    } else if (currentStones.length > targetCount) {
+      // Remove excess stones (from the end of the array)
+      const removeCount = currentStones.length - targetCount;
+      for (let i = 0; i < removeCount; i++) {
+        const stone = currentStones[currentStones.length - 1 - i];
+        
+        // Remove mesh from scene
+        this.scene.remove(stone.mesh);
+
+        // Remove from physics world
+        this.world.removeBody(stone.body);
+
+        // Remove from main array
+        const idx = this.capturedStones.indexOf(stone);
+        if (idx !== -1) {
+          this.capturedStones.splice(idx, 1);
+        }
+      }
+    }
   }
 
   dispose(): void {
@@ -1152,6 +1265,15 @@ export class BoardRenderer {
     if (this.controls) {
       this.controls.dispose();
     }
+
+    // Clear captured stones physics
+    this.capturedStones.forEach(stone => {
+      if (this.world) this.world.removeBody(stone.body);
+      this.scene.remove(stone.mesh);
+    });
+    this.capturedStones = [];
+    if (this.blackLidBody && this.world) this.world.removeBody(this.blackLidBody);
+    if (this.whiteLidBody && this.world) this.world.removeBody(this.whiteLidBody);
 
     this.boardMesh.geometry.dispose();
     if (Array.isArray(this.boardMesh.material)) {
