@@ -65,9 +65,13 @@ export class BoardRenderer {
 
   // Cannon.js Physics
   private world!: CANNON.World;
+  private stonePhysicsMaterial!: CANNON.Material;
+  private lidPhysicsMaterial!: CANNON.Material;
   private blackLidBody: CANNON.Body | null = null;
   private whiteLidBody: CANNON.Body | null = null;
   private lidColliderHelpers: THREE.LineSegments[] = [];
+  private showLidCollisionMesh = false;
+  private showStoneCollisionMesh = false;
   private capturedStones: {
     mesh: THREE.Mesh;
     body: CANNON.Body;
@@ -108,9 +112,42 @@ export class BoardRenderer {
 
     // Initialize Cannon.js physics world
     this.world = new CANNON.World();
-    this.world.gravity.set(0, -9.82, 0); // standard gravity
-    (this.world.solver as any).iterations = 10;
+    // The scene is not modeled in meters, so slightly stronger gravity gives
+    // the small stones a convincingly quick drop at this visual scale.
+    this.world.gravity.set(0, -14, 0);
+    this.world.allowSleep = true;
+    (this.world.solver as any).iterations = 15;
     this.world.broadphase = new CANNON.SAPBroadphase(this.world);
+
+    this.stonePhysicsMaterial = new CANNON.Material('polished-go-stone');
+    this.lidPhysicsMaterial = new CANNON.Material('wooden-lid');
+
+    // Slate/shell stones are hard and polished: they click on impact, bounce
+    // very little, and slide briefly before friction brings them to rest.
+    this.world.addContactMaterial(new CANNON.ContactMaterial(
+      this.stonePhysicsMaterial,
+      this.lidPhysicsMaterial,
+      {
+        friction: 0.16,
+        restitution: 0.18,
+        contactEquationStiffness: 1e8,
+        contactEquationRelaxation: 3,
+        frictionEquationStiffness: 1e7,
+        frictionEquationRelaxation: 3,
+      }
+    ));
+    this.world.addContactMaterial(new CANNON.ContactMaterial(
+      this.stonePhysicsMaterial,
+      this.stonePhysicsMaterial,
+      {
+        friction: 0.12,
+        restitution: 0.12,
+        contactEquationStiffness: 1e8,
+        contactEquationRelaxation: 3,
+        frictionEquationStiffness: 1e7,
+        frictionEquationRelaxation: 3,
+      }
+    ));
 
     this.scene = new THREE.Scene();
     
@@ -338,7 +375,10 @@ export class BoardRenderer {
     }
 
     const shape = new CANNON.Heightfield(data, { elementSize });
-    const body = new CANNON.Body({ mass: 0 });
+    const body = new CANNON.Body({
+      mass: 0,
+      material: this.lidPhysicsMaterial,
+    });
     body.addShape(shape);
     body.position.set(lid.center.x - radius, baseY, lid.center.z + radius);
     body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
@@ -385,6 +425,8 @@ export class BoardRenderer {
       depthTest: false,
     });
     const helper = new THREE.LineSegments(helperGeometry, helperMaterial);
+    helper.name = 'lid-collision-mesh';
+    helper.visible = this.showLidCollisionMesh;
     helper.renderOrder = 10;
     this.scene.add(helper);
     this.lidColliderHelpers.push(helper);
@@ -619,15 +661,15 @@ export class BoardRenderer {
             const dot = stone.body.velocity.x * normalX + stone.body.velocity.z * normalZ;
 
             if (dot > 0) {
-              // Bounce back with restitution coefficient of ~0.3
-              const restitution = 0.3;
+              // A wooden rim absorbs most of the lateral impact.
+              const restitution = 0.18;
               stone.body.velocity.x -= (1 + restitution) * dot * normalX;
               stone.body.velocity.z -= (1 + restitution) * dot * normalZ;
 
               // Apply friction to angular velocity on collision
-              stone.body.angularVelocity.x *= 0.8;
-              stone.body.angularVelocity.y *= 0.8;
-              stone.body.angularVelocity.z *= 0.8;
+              stone.body.angularVelocity.x *= 0.7;
+              stone.body.angularVelocity.y *= 0.7;
+              stone.body.angularVelocity.z *= 0.7;
             }
           }
 
@@ -952,6 +994,21 @@ export class BoardRenderer {
     if (this.keyLight) {
       this.keyLight.shadow.normalBias = normalBias;
     }
+  }
+
+  setLidCollisionMeshVisible(visible: boolean): void {
+    this.showLidCollisionMesh = visible;
+    this.lidColliderHelpers.forEach(helper => {
+      helper.visible = visible;
+    });
+  }
+
+  setStoneCollisionMeshVisible(visible: boolean): void {
+    this.showStoneCollisionMesh = visible;
+    this.capturedStones.forEach(stone => {
+      const helper = stone.mesh.getObjectByName('stone-collision-mesh');
+      if (helper) helper.visible = visible;
+    });
   }
 
   onMove?: () => void;
@@ -1336,6 +1393,8 @@ export class BoardRenderer {
         const wireframeGeom = new THREE.WireframeGeometry(this.stoneGeom);
         const wireframeMat = new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 1 });
         const wireframe = new THREE.LineSegments(wireframeGeom, wireframeMat);
+        wireframe.name = 'stone-collision-mesh';
+        wireframe.visible = this.showStoneCollisionMesh;
         mesh.add(wireframe);
 
         // Spawn position: above the lid center to fall down
@@ -1344,7 +1403,7 @@ export class BoardRenderer {
         const spawnRadius = Math.random() * (this.lidScatterRadius * 0.3);
         const spawnX = lidCenter.x + Math.cos(spawnAngle) * spawnRadius;
         const spawnZ = lidCenter.z + Math.sin(spawnAngle) * spawnRadius;
-        const spawnY = lidTopY + 1.0 + (i * 0.4); // lower spawn height for gentler drops
+        const spawnY = lidTopY + 0.55 + (i * 0.18);
 
         mesh.position.set(spawnX, spawnY, spawnZ);
 
@@ -1352,11 +1411,14 @@ export class BoardRenderer {
         // cannot provide the stable vertical face the old box collider had.
         const stoneShape = this.createStoneCollisionShape(scale);
         const body = new CANNON.Body({
-          mass: 0.25,
+          mass: 0.18,
           position: new CANNON.Vec3(spawnX, spawnY, spawnZ),
-          material: new CANNON.Material({ friction: 0.45, restitution: 0.04 }),
-          linearDamping: 0.28,
-          angularDamping: 0.3
+          material: this.stonePhysicsMaterial,
+          linearDamping: 0.045,
+          angularDamping: 0.1,
+          allowSleep: true,
+          sleepSpeedLimit: 0.1,
+          sleepTimeLimit: 0.45,
         });
         body.addShape(stoneShape);
 
@@ -1367,9 +1429,14 @@ export class BoardRenderer {
           (Math.random() - 0.5) * 0.3
         );
         body.velocity.set(
-          (Math.random() - 0.5) * 0.2,
-          -0.3,
-          (Math.random() - 0.5) * 0.2
+          (Math.random() - 0.5) * 0.28,
+          -0.85,
+          (Math.random() - 0.5) * 0.28
+        );
+        body.angularVelocity.set(
+          (Math.random() - 0.5) * 1.2,
+          (Math.random() - 0.5) * 1.8,
+          (Math.random() - 0.5) * 1.2
         );
 
         this.world.addBody(body);

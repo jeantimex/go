@@ -292,6 +292,18 @@ class App {
                 </div>
               </div>
 
+              <div class="setting-group">
+                <h3>Collision Debug Meshes</h3>
+                <div class="checkbox-row">
+                  <input type="checkbox" id="show-lid-collision-mesh" />
+                  <label for="show-lid-collision-mesh">Show Lid Mesh</label>
+                </div>
+                <div class="checkbox-row" style="margin-top: 8px;">
+                  <input type="checkbox" id="show-stone-collision-mesh" />
+                  <label for="show-stone-collision-mesh">Show Stone Meshes</label>
+                </div>
+              </div>
+
               <div class="setting-group shadow-params" id="shadow-params-section">
                 <h3>Shadow Settings</h3>
                 <div class="slider-row">
@@ -728,6 +740,16 @@ class App {
       const enabled = (e.target as HTMLInputElement).checked;
       this.renderer.setShadowsEnabled(enabled);
       shadowParamsSection.style.display = enabled ? 'block' : 'none';
+    });
+
+    const showLidCollisionMesh = document.getElementById('show-lid-collision-mesh') as HTMLInputElement;
+    showLidCollisionMesh.addEventListener('change', () => {
+      this.renderer.setLidCollisionMeshVisible(showLidCollisionMesh.checked);
+    });
+
+    const showStoneCollisionMesh = document.getElementById('show-stone-collision-mesh') as HTMLInputElement;
+    showStoneCollisionMesh.addEventListener('change', () => {
+      this.renderer.setStoneCollisionMeshVisible(showStoneCollisionMesh.checked);
     });
 
     const shadowResSelect = document.getElementById('shadow-resolution') as HTMLSelectElement;
