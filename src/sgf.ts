@@ -82,3 +82,42 @@ export function parseSgf(sgfContent: string): ParsedSgf {
 
   return { info, moves };
 }
+
+export function generateSgf(info: GameInfo | null, moves: SgfMove[]): string {
+  const actualInfo: GameInfo = info || {
+    blackPlayer: 'Black',
+    whitePlayer: 'White',
+    blackRank: '',
+    whiteRank: '',
+    date: new Date().toISOString().slice(0, 10),
+    result: '',
+    komi: 6.5,
+    boardSize: 19,
+    event: 'Local Game',
+    round: '',
+  };
+
+  let sgf = '(;GM[1]FF[4]CA[UTF-8]';
+  sgf += `SZ[${actualInfo.boardSize}]`;
+  if (actualInfo.komi !== undefined) sgf += `KM[${actualInfo.komi}]`;
+  if (actualInfo.blackPlayer) sgf += `PB[${actualInfo.blackPlayer}]`;
+  if (actualInfo.whitePlayer) sgf += `PW[${actualInfo.whitePlayer}]`;
+  if (actualInfo.blackRank) sgf += `BR[${actualInfo.blackRank}]`;
+  if (actualInfo.whiteRank) sgf += `WR[${actualInfo.whiteRank}]`;
+  if (actualInfo.date) sgf += `DT[${actualInfo.date}]`;
+  if (actualInfo.result) sgf += `RE[${actualInfo.result}]`;
+  if (actualInfo.event) sgf += `EV[${actualInfo.event}]`;
+  if (actualInfo.round) sgf += `RO[${actualInfo.round}]`;
+  sgf += '\n';
+
+  for (const move of moves) {
+    const colorChar = move.color === 'black' ? 'B' : 'W';
+    const xChar = String.fromCharCode('a'.charCodeAt(0) + move.x);
+    const yChar = String.fromCharCode('a'.charCodeAt(0) + move.y);
+    sgf += `;${colorChar}[${xChar}${yChar}]`;
+  }
+
+  sgf += ')';
+  return sgf;
+}
+

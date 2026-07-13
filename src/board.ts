@@ -98,10 +98,13 @@ export class BoardRenderer {
 
   render(): void {
     this.drawBoard();
+    this.drawStones();
     if (this.showOwnership && this.analysis?.ownership) {
       this.drawOwnership();
     }
-    this.drawStones();
+    if (this.showLastMove && this.game.lastMove) {
+      this.drawLastMoveMarker(this.game.lastMove.x, this.game.lastMove.y);
+    }
     if (this.analysis) {
       this.drawSuggestedMoves();
     }
@@ -219,10 +222,6 @@ export class BoardRenderer {
         }
       }
     }
-
-    if (this.showLastMove && this.game.lastMove) {
-      this.drawLastMoveMarker(this.game.lastMove.x, this.game.lastMove.y);
-    }
   }
 
   private drawStone(x: number, y: number, color: 'black' | 'white'): void {
@@ -292,39 +291,49 @@ export class BoardRenderer {
     if (!this.analysis?.ownership) return;
 
     const ownership = this.analysis.ownership;
-    const markerSize = this.cellSize * 0.22;
 
     for (let y = 0; y < this.game.size; y++) {
       for (let x = 0; x < this.game.size; x++) {
         const idx = y * this.game.size + x;
         const value = ownership[idx];
-        if (Math.abs(value) < 0.5) continue;
+        const certainty = Math.abs(value);
+
+        // Skip drawing for completely undecided or neutral territories (under 10% certainty)
+        if (certainty < 0.1) continue;
 
         const px = this.padding + x * this.cellSize;
         const py = this.padding + y * this.cellSize;
-        const stone = this.game.getStone(x, y);
         const isBlackTerritory = value > 0;
 
-        const shouldDraw =
-          stone === null ||
-          (stone === 'black' && !isBlackTerritory) ||
-          (stone === 'white' && isBlackTerritory);
+        // Scale marker size based on certainty (linear interpolation from 0.08 to 0.24 of cell size)
+        const minScale = 0.08;
+        const maxScale = 0.24;
+        const clampedCertainty = Math.max(0.1, Math.min(1.0, certainty));
+        const scale = minScale + (maxScale - minScale) * (clampedCertainty - 0.1) / 0.9;
+        const markerSize = this.cellSize * scale;
 
-        if (shouldDraw) {
-          const x1 = px - markerSize / 2;
-          const y1 = py - markerSize / 2;
+        const x1 = px - markerSize / 2;
+        const y1 = py - markerSize / 2;
 
-          if (isBlackTerritory) {
-            this.ctx.fillStyle = '#111';
-            this.ctx.fillRect(x1, y1, markerSize, markerSize);
-          } else {
-            this.ctx.fillStyle = '#fff';
-            this.ctx.fillRect(x1, y1, markerSize, markerSize);
-            this.ctx.strokeStyle = '#333';
-            this.ctx.lineWidth = 1;
-            this.ctx.strokeRect(x1, y1, markerSize, markerSize);
-          }
+        this.ctx.save();
+        if (isBlackTerritory) {
+          // Black territory mark: Dark fill with a light semi-transparent white border to pop
+          this.ctx.fillStyle = '#111';
+          this.ctx.fillRect(x1, y1, markerSize, markerSize);
+
+          this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+          this.ctx.lineWidth = 1;
+          this.ctx.strokeRect(x1, y1, markerSize, markerSize);
+        } else {
+          // White territory mark: White fill with a dark border
+          this.ctx.fillStyle = '#fff';
+          this.ctx.fillRect(x1, y1, markerSize, markerSize);
+
+          this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+          this.ctx.lineWidth = 1;
+          this.ctx.strokeRect(x1, y1, markerSize, markerSize);
         }
+        this.ctx.restore();
       }
     }
   }

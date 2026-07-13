@@ -1,7 +1,7 @@
 import { GoGame } from './game';
 import { BoardRenderer } from './board';
 import { analyzePosition, checkServerHealth, AnalysisResponse } from './analysis';
-import { parseSgf, GameInfo } from './sgf';
+import { parseSgf, GameInfo, generateSgf } from './sgf';
 import './style.css';
 
 class App {
@@ -31,7 +31,7 @@ class App {
     };
     this.renderer.render();
     this.setupBoardSizeButtons();
-    this.setupFileInput();
+    this.setupFileActions();
     this.setupReplayControls();
     this.checkServer();
   }
@@ -136,11 +136,14 @@ class App {
           </div>
 
           <div class="load-section">
-            <h3>Load Game</h3>
-            <label class="btn-load" for="sgf-input">
-              Load SGF File
-              <input type="file" id="sgf-input" accept=".sgf" style="display: none;" />
-            </label>
+            <h3>SGF Files</h3>
+            <div class="sgf-actions">
+              <label class="btn-load" for="sgf-input">
+                Load SGF File
+                <input type="file" id="sgf-input" accept=".sgf" style="display: none;" />
+              </label>
+              <button class="btn-save-sgf" id="save-sgf-btn">Save SGF File</button>
+            </div>
           </div>
 
           <div class="analysis-section">
@@ -210,7 +213,7 @@ class App {
     this.analyzeBtn.addEventListener('click', () => this.analyze());
   }
 
-  private setupFileInput(): void {
+  private setupFileActions(): void {
     const fileInput = document.getElementById('sgf-input') as HTMLInputElement;
     fileInput.addEventListener('change', async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
@@ -220,6 +223,35 @@ class App {
       this.loadSgf(content);
       fileInput.value = '';
     });
+
+    const saveBtn = document.getElementById('save-sgf-btn') as HTMLButtonElement;
+    saveBtn.addEventListener('click', () => {
+      this.saveSgf();
+    });
+  }
+
+  private saveSgf(): void {
+    const moves = this.game.moveHistory.map((pos, idx) => ({
+      color: this.game.moveColors[idx],
+      x: pos.x,
+      y: pos.y
+    }));
+
+    const sgfContent = generateSgf(this.gameInfo, moves);
+    const blob = new Blob([sgfContent], { type: 'application/x-go-sgf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    
+    const dateStr = this.gameInfo?.date || new Date().toISOString().slice(0, 10);
+    const black = this.gameInfo?.blackPlayer || 'Black';
+    const white = this.gameInfo?.whitePlayer || 'White';
+    a.download = `${black}_vs_${white}_${dateStr}.sgf`;
+    
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   private loadSgf(content: string): void {

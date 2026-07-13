@@ -174,7 +174,7 @@ export class GoGame {
     this.moveColors = [];
   }
 
-  private moveColors: ('black' | 'white')[] = [];
+  moveColors: ('black' | 'white')[] = [];
 
   private posToGtp(x: number, y: number): string {
     const letters = 'ABCDEFGHJKLMNOPQRST';
