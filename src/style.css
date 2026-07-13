@@ -443,6 +443,40 @@ button:active {
   margin-top: 8px;
 }
 
+.select-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #aaa;
+  padding: 8px 12px;
+  background: #252525;
+  border-radius: 8px;
+}
+
+.select-setting select {
+  background: #333;
+  color: #fff;
+  border: 1px solid #444;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.select-setting select:hover {
+  background: #444;
+  border-color: #555;
+}
+
+.select-setting select:focus {
+  border-color: #2980b9;
+  box-shadow: 0 0 0 2px rgba(41, 128, 185, 0.2);
+}
+
 /* Game Info */
 .game-info {
   background: #252525;

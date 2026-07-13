@@ -1,5 +1,5 @@
 import { GoGame, GameMove } from './game';
-import { BoardRenderer } from './board';
+import { BoardRenderer, LastMoveMarkerType } from './board';
 import { analyzePosition, checkServerHealth, AnalysisResponse } from './analysis';
 import { parseSgf, GameInfo, generateSgf } from './sgf';
 import './style.css';
@@ -164,11 +164,15 @@ class App {
 
             <div class="settings">
               <h3>Settings</h3>
-              <label class="toggle-setting">
-                <span>Show last move</span>
-                <input type="checkbox" id="show-last-move" checked />
-                <div class="toggle-switch"></div>
-              </label>
+              <div class="select-setting">
+                <span>Last move marker</span>
+                <select id="last-move-marker">
+                  <option value="none" selected>None</option>
+                  <option value="circle">Circle</option>
+                  <option value="triangle">Triangle</option>
+                  <option value="number">Move Number</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -249,8 +253,8 @@ class App {
       this.hideAnalysis();
     });
 
-    document.getElementById('show-last-move')!.addEventListener('change', (e) => {
-      this.renderer.showLastMove = (e.target as HTMLInputElement).checked;
+    document.getElementById('last-move-marker')!.addEventListener('change', (e) => {
+      this.renderer.lastMoveMarkerType = (e.target as HTMLSelectElement).value as LastMoveMarkerType;
       this.renderer.render();
     });
 
@@ -308,6 +312,9 @@ class App {
     this.gameInfo = parsed.info;
 
     if (parsed.info.boardSize !== this.game.size) {
+      if (this.renderer) {
+        this.renderer.dispose();
+      }
       this.game = new GoGame(parsed.info.boardSize);
       this.renderer = new BoardRenderer(
         document.getElementById('board') as HTMLCanvasElement,
@@ -540,6 +547,9 @@ class App {
   }
 
   private changeBoardSize(size: number): void {
+    if (this.renderer) {
+      this.renderer.dispose();
+    }
     this.game = new GoGame(size);
     this.renderer = new BoardRenderer(
       document.getElementById('board') as HTMLCanvasElement,
