@@ -19,6 +19,8 @@
     "vite": "^6.3.5"
   },
   "dependencies": {
+    "@threecyborgs/wasm-box3d": "^0.1.2",
+    "@threecyborgs/wasm-box3d-three": "^0.1.2",
     "cannon-es": "^0.20.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",

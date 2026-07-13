@@ -67,6 +67,7 @@ export class BoardRenderer {
   private world!: CANNON.World;
   private blackLidBody: CANNON.Body | null = null;
   private whiteLidBody: CANNON.Body | null = null;
+  private lidColliderHelpers: THREE.LineSegments[] = [];
   private capturedStones: {
     mesh: THREE.Mesh;
     body: CANNON.Body;
@@ -246,6 +247,151 @@ export class BoardRenderer {
     this.resetCamera();
   }
 
+  /**
+   * Build a low-poly biconvex lens matching the rendered Go stone. Unlike a
+   * box or cylinder, the rounded edge has no stable face for a stone to stand
+   * on, so edge landings naturally tip over.
+   */
+  private createStoneCollisionShape(scale: number): CANNON.ConvexPolyhedron {
+    const segments = 16;
+    const radius = 0.46 * scale;
+    const halfHeight = 0.46 * 0.38 * scale;
+    const shoulderRadius = radius * 0.82;
+    const shoulderY = halfHeight * 0.48;
+    const vertices: CANNON.Vec3[] = [new CANNON.Vec3(0, halfHeight, 0)];
+
+    const addRing = (ringRadius: number, y: number): void => {
+      for (let i = 0; i < segments; i++) {
+        const angle = (i / segments) * Math.PI * 2;
+        vertices.push(new CANNON.Vec3(
+          Math.cos(angle) * ringRadius,
+          y,
+          Math.sin(angle) * ringRadius
+        ));
+      }
+    };
+
+    addRing(shoulderRadius, shoulderY);
+    addRing(radius, 0);
+    addRing(shoulderRadius, -shoulderY);
+    const bottomIndex = vertices.length;
+    vertices.push(new CANNON.Vec3(0, -halfHeight, 0));
+
+    const faces: number[][] = [];
+    const ringStart = [1, 1 + segments, 1 + segments * 2];
+    for (let i = 0; i < segments; i++) {
+      const next = (i + 1) % segments;
+      faces.push([0, ringStart[0] + next, ringStart[0] + i]);
+
+      for (let ring = 0; ring < ringStart.length - 1; ring++) {
+        faces.push([
+          ringStart[ring] + i,
+          ringStart[ring] + next,
+          ringStart[ring + 1] + next,
+          ringStart[ring + 1] + i,
+        ]);
+      }
+
+      faces.push([
+        ringStart[2] + i,
+        ringStart[2] + next,
+        bottomIndex,
+      ]);
+    }
+
+    return new CANNON.ConvexPolyhedron({ vertices, faces });
+  }
+
+  /** Sample the visible GLTF lid and use the same samples for physics and its
+   * green debug wireframe. Heightfield's local Z axis is rotated onto world Y.
+   */
+  private createLidCollider(
+    lid: { mesh: THREE.Mesh; box: THREE.Box3; center: THREE.Vector3 },
+    radius: number
+  ): CANNON.Body {
+    const sampleCount = 17;
+    const diameter = radius * 2;
+    const elementSize = diameter / (sampleCount - 1);
+    const baseY = lid.box.min.y;
+    const raycaster = new THREE.Raycaster();
+    const down = new THREE.Vector3(0, -1, 0);
+    const data: number[][] = [];
+    const worldHeights: number[][] = [];
+
+    for (let xIndex = 0; xIndex < sampleCount; xIndex++) {
+      const heightColumn: number[] = [];
+      const worldColumn: number[] = [];
+      const x = lid.center.x - radius + xIndex * elementSize;
+
+      for (let zIndex = 0; zIndex < sampleCount; zIndex++) {
+        // The -X rotation below maps increasing local Y toward decreasing Z.
+        const z = lid.center.z + radius - zIndex * elementSize;
+        raycaster.set(new THREE.Vector3(x, lid.box.max.y + 1, z), down);
+        const hit = raycaster.intersectObject(lid.mesh, false)[0];
+        const surfaceY = hit?.point.y ?? baseY;
+        heightColumn.push(Math.max(0, surfaceY - baseY));
+        worldColumn.push(surfaceY);
+      }
+
+      data.push(heightColumn);
+      worldHeights.push(worldColumn);
+    }
+
+    const shape = new CANNON.Heightfield(data, { elementSize });
+    const body = new CANNON.Body({ mass: 0 });
+    body.addShape(shape);
+    body.position.set(lid.center.x - radius, baseY, lid.center.z + radius);
+    body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+    this.world.addBody(body);
+
+    const positions: number[] = [];
+    const addSegment = (ax: number, az: number, bx: number, bz: number): void => {
+      const aDistance = Math.hypot(
+        lid.center.x - radius + ax * elementSize - lid.center.x,
+        lid.center.z + radius - az * elementSize - lid.center.z
+      );
+      const bDistance = Math.hypot(
+        lid.center.x - radius + bx * elementSize - lid.center.x,
+        lid.center.z + radius - bz * elementSize - lid.center.z
+      );
+      if (aDistance > radius || bDistance > radius) return;
+
+      positions.push(
+        lid.center.x - radius + ax * elementSize,
+        worldHeights[ax][az] + 0.008,
+        lid.center.z + radius - az * elementSize,
+        lid.center.x - radius + bx * elementSize,
+        worldHeights[bx][bz] + 0.008,
+        lid.center.z + radius - bz * elementSize
+      );
+    };
+
+    for (let x = 0; x < sampleCount; x++) {
+      for (let z = 0; z < sampleCount; z++) {
+        if (x + 1 < sampleCount) addSegment(x, z, x + 1, z);
+        if (z + 1 < sampleCount) addSegment(x, z, x, z + 1);
+        if (x + 1 < sampleCount && z + 1 < sampleCount) {
+          addSegment(x, z, x + 1, z + 1);
+        }
+      }
+    }
+
+    const helperGeometry = new THREE.BufferGeometry();
+    helperGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    const helperMaterial = new THREE.LineBasicMaterial({
+      color: 0x00ff00,
+      transparent: true,
+      opacity: 0.9,
+      depthTest: false,
+    });
+    const helper = new THREE.LineSegments(helperGeometry, helperMaterial);
+    helper.renderOrder = 10;
+    this.scene.add(helper);
+    this.lidColliderHelpers.push(helper);
+
+    return body;
+  }
+
   private loadGltfModel(): void {
     const loader = new GLTFLoader();
     loader.load('go_board/scene.gltf', (gltf) => {
@@ -353,45 +499,12 @@ export class BoardRenderer {
           const lidRadius = lid1.size.x / 2;
           this.lidScatterRadius = lidRadius * 0.88; // 88% of the actual radius to align perfectly right inside the rim groove
 
-          // Draw green debugging circles to visualize the lid bounds
-          const createDebugCircle = (center: THREE.Vector3, topY: number) => {
-            const debugCircleGeom = new THREE.RingGeometry(this.lidScatterRadius - 0.02, this.lidScatterRadius, 64);
-            debugCircleGeom.rotateX(-Math.PI / 2);
-            const debugCircleMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide });
-            const debugCircleMesh = new THREE.Mesh(debugCircleGeom, debugCircleMat);
-            debugCircleMesh.position.copy(center);
-            debugCircleMesh.position.y = topY + 0.005; // slightly above lid surface to avoid z-fighting
-            this.scene.add(debugCircleMesh);
-          };
-          if (this.blackLidCenter) createDebugCircle(this.blackLidCenter, this.blackLidTopY);
-          if (this.whiteLidCenter) createDebugCircle(this.whiteLidCenter, this.whiteLidTopY);
-
-          // Create Cannon.js static bodies representing the lid surfaces for collision
-          // Use a cylinder shape that matches the actual circular lid
-          const collisionRadius = this.lidScatterRadius + 0.1;
-          const lidHeight = 0.2;
-          const lidShape = new CANNON.Cylinder(collisionRadius, collisionRadius, lidHeight, 32);
-          const lidMaterial = new CANNON.Material({ friction: 0.5, restitution: 0.1 });
-
-          if (this.blackLidCenter) {
-            this.blackLidBody = new CANNON.Body({
-              mass: 0, // static
-              position: new CANNON.Vec3(this.blackLidCenter.x, this.blackLidTopY - lidHeight / 2 + 0.05, this.blackLidCenter.z),
-              material: lidMaterial
-            });
-            this.blackLidBody.addShape(lidShape);
-            this.world.addBody(this.blackLidBody);
-          }
-
-          if (this.whiteLidCenter) {
-            this.whiteLidBody = new CANNON.Body({
-              mass: 0, // static
-              position: new CANNON.Vec3(this.whiteLidCenter.x, this.whiteLidTopY - lidHeight / 2 + 0.05, this.whiteLidCenter.z),
-              material: lidMaterial
-            });
-            this.whiteLidBody.addShape(lidShape);
-            this.world.addBody(this.whiteLidBody);
-          }
+          // Sample the actual lid surfaces for collision and visualize those
+          // heightfields as green meshes.
+          const blackLid = lid1.center.x > lid2.center.x ? lid1 : lid2;
+          const whiteLid = lid1.center.x > lid2.center.x ? lid2 : lid1;
+          this.blackLidBody = this.createLidCollider(blackLid, this.lidScatterRadius);
+          this.whiteLidBody = this.createLidCollider(whiteLid, this.lidScatterRadius);
         }
 
         // Traverse scene to set shadow flags & hide board stones and lid stones
@@ -489,8 +602,8 @@ export class BoardRenderer {
           const dz = stone.body.position.z - center.z;
           const dist = Math.sqrt(dx * dx + dz * dz);
 
-          // Stone physics radius is 0.35, use slightly larger margin for visual fit
-          const stoneRadius = 0.38;
+          // Stone physics half-width is 0.36
+          const stoneRadius = 0.36;
           const maxRadius = this.lidScatterRadius - stoneRadius;
 
           if (dist > maxRadius && maxRadius > 0) {
@@ -518,14 +631,12 @@ export class BoardRenderer {
             }
           }
 
-          // Prevent stones from falling through the lid - enforce minimum Y position
-          // Cylinder half-height is 0.14, so center should be at least that above lid
-          const minY = lidTopY + 0.16;
-          if (stone.body.position.y < minY) {
-            stone.body.position.y = minY;
-            if (stone.body.velocity.y < 0) {
-              stone.body.velocity.y *= -0.15; // weak bounce upward
-            }
+          // Safety net only. Normal support comes from the sampled lid
+          // heightfield; this prevents a body escaping after a very large step.
+          if (stone.body.position.y < lidTopY - 0.75) {
+            stone.body.position.set(center.x, lidTopY + 0.6, center.z);
+            stone.body.velocity.setZero();
+            stone.body.angularVelocity.setZero();
           }
         }
 
@@ -1237,31 +1348,28 @@ export class BoardRenderer {
 
         mesh.position.set(spawnX, spawnY, spawnZ);
 
-        // Create Cannon.js physical body - use cylinder to match flat stone shape
-        // Visual stone: sphere r=0.46, scaled (1, 0.38, 1), then mesh scaled 0.85
-        // So: radius ≈ 0.39, height ≈ 0.30
-        const stoneRadius = 0.38;
-        const stoneHeight = 0.28;
-        const stoneShape = new CANNON.Cylinder(stoneRadius, stoneRadius, stoneHeight, 16);
+        // Use a biconvex lens matching the visual stone. Its rounded perimeter
+        // cannot provide the stable vertical face the old box collider had.
+        const stoneShape = this.createStoneCollisionShape(scale);
         const body = new CANNON.Body({
-          mass: 0.2,
+          mass: 0.25,
           position: new CANNON.Vec3(spawnX, spawnY, spawnZ),
-          material: new CANNON.Material({ friction: 0.6, restitution: 0.1 }),
-          linearDamping: 0.3,
-          angularDamping: 0.4
+          material: new CANNON.Material({ friction: 0.45, restitution: 0.04 }),
+          linearDamping: 0.28,
+          angularDamping: 0.3
         });
         body.addShape(stoneShape);
 
-        // Small random tilt, no extreme rotations so stones land flat
-        body.angularVelocity.set(
-          (Math.random() - 0.5) * 1,
-          (Math.random() - 0.5) * 3,
-          (Math.random() - 0.5) * 1
+        // Start mostly flat with slight random tilt
+        body.quaternion.setFromEuler(
+          (Math.random() - 0.5) * 0.3,
+          Math.random() * Math.PI * 2,
+          (Math.random() - 0.5) * 0.3
         );
         body.velocity.set(
-          (Math.random() - 0.5) * 0.3,
-          -0.5,
-          (Math.random() - 0.5) * 0.3
+          (Math.random() - 0.5) * 0.2,
+          -0.3,
+          (Math.random() - 0.5) * 0.2
         );
 
         this.world.addBody(body);
@@ -1312,6 +1420,12 @@ export class BoardRenderer {
     this.capturedStones = [];
     if (this.blackLidBody && this.world) this.world.removeBody(this.blackLidBody);
     if (this.whiteLidBody && this.world) this.world.removeBody(this.whiteLidBody);
+    this.lidColliderHelpers.forEach(helper => {
+      this.scene.remove(helper);
+      helper.geometry.dispose();
+      (helper.material as THREE.Material).dispose();
+    });
+    this.lidColliderHelpers = [];
 
     this.boardMesh.geometry.dispose();
     if (Array.isArray(this.boardMesh.material)) {
