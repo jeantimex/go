@@ -65,7 +65,6 @@ class App {
     app.innerHTML = `
       <div class="game-container">
         <div class="board-section">
-          <h1>Go Game</h1>
           <canvas id="board"></canvas>
         </div>
         <div class="sidebar" id="sidebar">

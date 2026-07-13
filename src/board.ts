@@ -90,7 +90,7 @@ export class BoardRenderer {
     });
     this.renderer.setPixelRatio(window.devicePixelRatio || 1);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.setSize(width, height, false);
 
     // Setup OrbitControls
@@ -98,7 +98,7 @@ export class BoardRenderer {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
     this.controls.minDistance = 4;
-    this.controls.maxDistance = 40;
+    this.controls.maxDistance = 80;
     this.controls.maxPolarAngle = Math.PI / 2 - 0.05; // Prevent camera from going below ground
 
     // Create Cache Canvas for 2D board drawing
@@ -130,6 +130,7 @@ export class BoardRenderer {
     this.boardMesh = new THREE.Mesh(boardGeom, materials);
     this.boardMesh.position.set(0, -0.2, 0); // top face is exactly at Y=0
     this.boardMesh.receiveShadow = true;
+    this.boardMesh.visible = false; // Hidden by default to prevent visual flickering before GLTF loads
     this.scene.add(this.boardMesh);
 
     // Setup Lights (Rich multi-directional setup for high fidelity 3D highlights)
@@ -281,6 +282,10 @@ export class BoardRenderer {
 
       this.resize();
       this.render();
+    }, undefined, (error) => {
+      console.warn('Failed to load GLTF board, falling back to procedural board:', error);
+      this.boardMesh.visible = true;
+      this.render();
     });
   }
 
@@ -426,15 +431,12 @@ export class BoardRenderer {
   }
 
   private resize(): void {
-    const containerWidth = this.canvas.parentElement?.clientWidth || window.innerWidth;
-    const containerHeight = this.canvas.parentElement?.clientHeight || window.innerHeight;
+    const width = this.canvas.parentElement?.clientWidth || window.innerWidth;
+    const height = this.canvas.parentElement?.clientHeight || window.innerHeight;
 
-    const availHeight = containerHeight - 80;
-    const sizePx = Math.max(280, Math.floor(Math.min(containerWidth - 40, availHeight - 40)));
+    this.renderer.setSize(width, height, true);
 
-    this.renderer.setSize(sizePx, sizePx, true);
-
-    this.camera.aspect = 1; // Since width and height are equal (square)
+    this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
   }
 
@@ -443,10 +445,20 @@ export class BoardRenderer {
     const boardWidth2D = this.cellSize * (size - 1) + this.padding * 2;
     const targetWidth = boardWidth2D / this.cellSize;
     
-    // We want the board to fit inside the camera view with a 35% margin
-    const visibleDim = targetWidth * 1.35;
-    const fovRad = (this.camera.fov / 2) * (Math.PI / 180);
-    return visibleDim / (2 * Math.tan(fovRad));
+    // We want the board to fit inside the camera view with a 60% margin
+    const visibleDim = targetWidth * 1.6;
+    
+    const aspect = this.camera.aspect;
+    const vFovRad = (this.camera.fov / 2) * (Math.PI / 180);
+    
+    if (aspect >= 1) {
+      // Landscape or square: fit vertically
+      return visibleDim / (2 * Math.tan(vFovRad));
+    } else {
+      // Portrait: fit horizontally
+      const hFovRad = Math.atan(Math.tan(vFovRad) * aspect);
+      return visibleDim / (2 * Math.tan(hFovRad));
+    }
   }
 
   private resetCamera(): void {
