@@ -367,26 +367,29 @@ export class BoardRenderer {
           if (this.whiteLidCenter) createDebugCircle(this.whiteLidCenter, this.whiteLidTopY);
 
           // Create Cannon.js static bodies representing the lid surfaces for collision
-          const lidShape = new CANNON.Box(new CANNON.Vec3(1.5, 0.05, 1.5)); // half-extents
-          const lidMaterial = new CANNON.Material({ friction: 0.1, restitution: 0.2 });
+          // Use a cylinder shape that matches the actual circular lid
+          const collisionRadius = this.lidScatterRadius + 0.1;
+          const lidHeight = 0.2;
+          const lidShape = new CANNON.Cylinder(collisionRadius, collisionRadius, lidHeight, 32);
+          const lidMaterial = new CANNON.Material({ friction: 0.5, restitution: 0.1 });
 
           if (this.blackLidCenter) {
             this.blackLidBody = new CANNON.Body({
               mass: 0, // static
-              shape: lidShape,
-              position: new CANNON.Vec3(this.blackLidCenter.x, this.blackLidTopY - 0.05, this.blackLidCenter.z),
+              position: new CANNON.Vec3(this.blackLidCenter.x, this.blackLidTopY - lidHeight / 2 + 0.05, this.blackLidCenter.z),
               material: lidMaterial
             });
+            this.blackLidBody.addShape(lidShape);
             this.world.addBody(this.blackLidBody);
           }
 
           if (this.whiteLidCenter) {
             this.whiteLidBody = new CANNON.Body({
               mass: 0, // static
-              shape: lidShape,
-              position: new CANNON.Vec3(this.whiteLidCenter.x, this.whiteLidTopY - 0.05, this.whiteLidCenter.z),
+              position: new CANNON.Vec3(this.whiteLidCenter.x, this.whiteLidTopY - lidHeight / 2 + 0.05, this.whiteLidCenter.z),
               material: lidMaterial
             });
+            this.whiteLidBody.addShape(lidShape);
             this.world.addBody(this.whiteLidBody);
           }
         }
@@ -479,31 +482,55 @@ export class BoardRenderer {
       this.capturedStones.forEach(stone => {
         // Circular bounding constraint (keep stones inside the lid rim)
         const center = stone.lidType === 'black' ? this.blackLidCenter : this.whiteLidCenter;
+        const lidTopY = stone.lidType === 'black' ? this.blackLidTopY : this.whiteLidTopY;
+
         if (center) {
           const dx = stone.body.position.x - center.x;
           const dz = stone.body.position.z - center.z;
           const dist = Math.sqrt(dx * dx + dz * dz);
 
-          // Subtract 0.39 (the actual visual horizontal radius of the stone) to keep the stone strictly inside the green circle
-          const maxRadius = this.lidScatterRadius - 0.39;
-          if (dist > maxRadius) {
+          // Stone physics radius is 0.35, use slightly larger margin for visual fit
+          const stoneRadius = 0.38;
+          const maxRadius = this.lidScatterRadius - stoneRadius;
+
+          if (dist > maxRadius && maxRadius > 0) {
             const angle = Math.atan2(dz, dx);
+
+            // Push stone back inside the boundary
             stone.body.position.x = center.x + Math.cos(angle) * maxRadius;
             stone.body.position.z = center.z + Math.sin(angle) * maxRadius;
 
-            // Reflect the velocity along the normal vector of the boundary (bounce)
+            // Reflect velocity with energy loss (bounce effect)
             const normalX = Math.cos(angle);
             const normalZ = Math.sin(angle);
             const dot = stone.body.velocity.x * normalX + stone.body.velocity.z * normalZ;
-            if (dot > 0) { // moving outwards
-              stone.body.velocity.x -= 1.4 * dot * normalX; // bounce back with 0.4 coefficient of restitution
-              stone.body.velocity.z -= 1.4 * dot * normalZ;
+
+            if (dot > 0) {
+              // Bounce back with restitution coefficient of ~0.3
+              const restitution = 0.3;
+              stone.body.velocity.x -= (1 + restitution) * dot * normalX;
+              stone.body.velocity.z -= (1 + restitution) * dot * normalZ;
+
+              // Apply friction to angular velocity on collision
+              stone.body.angularVelocity.x *= 0.8;
+              stone.body.angularVelocity.y *= 0.8;
+              stone.body.angularVelocity.z *= 0.8;
+            }
+          }
+
+          // Prevent stones from falling through the lid - enforce minimum Y position
+          // Cylinder half-height is 0.14, so center should be at least that above lid
+          const minY = lidTopY + 0.16;
+          if (stone.body.position.y < minY) {
+            stone.body.position.y = minY;
+            if (stone.body.velocity.y < 0) {
+              stone.body.velocity.y *= -0.15; // weak bounce upward
             }
           }
         }
 
-        // Copy positions to Three.js mesh, subtracting 0.20 from Y to account for the physical sphere vs. squashed visual mesh offset
-        stone.mesh.position.set(stone.body.position.x, stone.body.position.y - 0.20, stone.body.position.z);
+        // Copy positions to Three.js mesh - cylinder center aligns well with visual mesh center
+        stone.mesh.position.copy(stone.body.position as any);
         stone.mesh.quaternion.copy(stone.body.quaternion as any);
       });
     }
@@ -1194,36 +1221,47 @@ export class BoardRenderer {
         mesh.receiveShadow = true;
         this.scene.add(mesh);
 
-        // Spawn position: high above the lid to fall down dynamically
-        // Randomly scatter spawn position near the center of the lid
+        // Add wireframe to visualize the mesh
+        const wireframeGeom = new THREE.WireframeGeometry(this.stoneGeom);
+        const wireframeMat = new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 1 });
+        const wireframe = new THREE.LineSegments(wireframeGeom, wireframeMat);
+        mesh.add(wireframe);
+
+        // Spawn position: above the lid center to fall down
+        // Spawn near the center so stones land cleanly on the lid
         const spawnAngle = Math.random() * Math.PI * 2;
-        const spawnRadius = Math.random() * (this.lidScatterRadius * 0.4); // spawn near the center so they fall cleanly
+        const spawnRadius = Math.random() * (this.lidScatterRadius * 0.3);
         const spawnX = lidCenter.x + Math.cos(spawnAngle) * spawnRadius;
         const spawnZ = lidCenter.z + Math.sin(spawnAngle) * spawnRadius;
-        const spawnY = lidTopY + 2.0 + (i * 0.3); // spawn stacked high above
+        const spawnY = lidTopY + 1.0 + (i * 0.4); // lower spawn height for gentler drops
 
-        mesh.position.set(spawnX, spawnY - 0.20, spawnZ);
+        mesh.position.set(spawnX, spawnY, spawnZ);
 
-        // Create Cannon.js physical body (Sphere shape is simplest and most stable)
-        // A sphere shape with radius 0.35 matches the stone size and prevents them from overlapping or floating
-        const stoneShape = new CANNON.Sphere(0.35);
+        // Create Cannon.js physical body - use cylinder to match flat stone shape
+        // Visual stone: sphere r=0.46, scaled (1, 0.38, 1), then mesh scaled 0.85
+        // So: radius ≈ 0.39, height ≈ 0.30
+        const stoneRadius = 0.38;
+        const stoneHeight = 0.28;
+        const stoneShape = new CANNON.Cylinder(stoneRadius, stoneRadius, stoneHeight, 16);
         const body = new CANNON.Body({
-          mass: 0.1, // lightweight
-          shape: stoneShape,
+          mass: 0.2,
           position: new CANNON.Vec3(spawnX, spawnY, spawnZ),
-          material: new CANNON.Material({ friction: 0.15, restitution: 0.25 }) // stable physics friction/restitution
+          material: new CANNON.Material({ friction: 0.6, restitution: 0.1 }),
+          linearDamping: 0.3,
+          angularDamping: 0.4
         });
+        body.addShape(stoneShape);
 
-        // Add a slight initial random rotation/velocity to make the drop look cool
+        // Small random tilt, no extreme rotations so stones land flat
         body.angularVelocity.set(
-          (Math.random() - 0.5) * 5,
-          (Math.random() - 0.5) * 5,
-          (Math.random() - 0.5) * 5
+          (Math.random() - 0.5) * 1,
+          (Math.random() - 0.5) * 3,
+          (Math.random() - 0.5) * 1
         );
         body.velocity.set(
-          (Math.random() - 0.5) * 0.5,
-          -1.0, // moving down
-          (Math.random() - 0.5) * 0.5
+          (Math.random() - 0.5) * 0.3,
+          -0.5,
+          (Math.random() - 0.5) * 0.3
         );
 
         this.world.addBody(body);
