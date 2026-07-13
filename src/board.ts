@@ -210,53 +210,6 @@ export class BoardRenderer {
     loader.load('go_board/scene.gltf', (gltf) => {
       // Find board mesh to determine board boundaries for stone visibility filtering
       const boardMesh = gltf.scene.getObjectByName('Board_Wood_0') as THREE.Mesh;
-      let minX = -10, maxX = 10, minZ = -10, maxZ = 10;
-      if (boardMesh) {
-        const boardBox = new THREE.Box3().setFromObject(boardMesh);
-        minX = boardBox.min.x;
-        maxX = boardBox.max.x;
-        minZ = boardBox.min.z;
-        maxZ = boardBox.max.z;
-      }
-
-      // Update matrices before querying positions
-      gltf.scene.updateMatrixWorld(true);
-
-      // 1. Traverse scene: set shadow flags & hide pre-baked game stones on the board, leaving bowl stones visible
-      gltf.scene.traverse((node) => {
-        if (node instanceof THREE.Mesh) {
-          node.castShadow = true;
-          node.receiveShadow = true;
-
-          // Resolve Z-fighting on the model's baked grid plane mesh
-          if (node.name === 'Plane.001_Material_0') {
-            node.position.y += 0.001;
-            if (node.material) {
-              const mats = Array.isArray(node.material) ? node.material : [node.material];
-              mats.forEach(mat => {
-                mat.polygonOffset = true;
-                mat.polygonOffsetFactor = -1;
-                mat.polygonOffsetUnits = -1;
-              });
-            }
-          }
-        }
-
-        // Only hide pre-baked stones if they are physically on the board grid area
-        const nameLower = node.name.toLowerCase();
-        if (nameLower.includes('stone')) {
-          const worldPos = new THREE.Vector3();
-          node.getWorldPosition(worldPos);
-
-          if (worldPos.x >= minX && worldPos.x <= maxX && worldPos.z >= minZ && worldPos.z <= maxZ) {
-            node.visible = false;
-          } else {
-            node.visible = true;
-          }
-        }
-      });
-
-      // 2. Locate board mesh and align dimensions with scaling
       if (boardMesh) {
         // Calculate raw size of board in GLTF
         const box = new THREE.Box3().setFromObject(boardMesh);
@@ -271,7 +224,7 @@ export class BoardRenderer {
         // Apply scale to GLTF scene
         gltf.scene.scale.set(scaleFactor, scaleFactor, scaleFactor);
 
-        // Force world matrix update so Box3 calculations are correct
+        // Force world matrix update so Box3 and world position calculations are correct
         gltf.scene.updateMatrixWorld(true);
 
         // Re-calculate bounding box and top Y coordinate of scaled board
@@ -298,45 +251,94 @@ export class BoardRenderer {
         this.gridPlaneMesh.position.set(this.boardCenterVec.x, this.boardTopY + 0.008, this.boardCenterVec.z);
         this.gridPlaneMesh.receiveShadow = true;
         this.scene.add(this.gridPlaneMesh);
+
+        // Detect wooden bowls and lids/covers from GLTF scene in scaled world coordinates
+        const spheres: { mesh: THREE.Mesh, box: THREE.Box3, size: THREE.Vector3, center: THREE.Vector3 }[] = [];
+        gltf.scene.traverse((node) => {
+          if (node instanceof THREE.Mesh && node.name.startsWith('Sphere')) {
+            const box = new THREE.Box3().setFromObject(node);
+            const size = new THREE.Vector3();
+            box.getSize(size);
+            const center = new THREE.Vector3();
+            box.getCenter(center);
+            spheres.push({ mesh: node, box, size, center });
+          }
+        });
+
+        // Sort by size.y (height) ascending. The first two are the flatter lids/covers!
+        spheres.sort((a, b) => a.size.y - b.size.y);
+
+        if (spheres.length >= 4) {
+          const lid1 = spheres[0];
+          const lid2 = spheres[1];
+
+          // The one with larger X is the Black Lid (on the right)
+          // The one with smaller X is the White Lid (on the left)
+          if (lid1.center.x > lid2.center.x) {
+            this.blackLidCenter = lid1.center;
+            this.whiteLidCenter = lid2.center;
+          } else {
+            this.blackLidCenter = lid2.center;
+            this.whiteLidCenter = lid1.center;
+          }
+          
+          // Also get the height level on top of the lid
+          this.blackLidTopY = lid1.center.y + lid1.size.y / 2;
+          this.whiteLidTopY = lid2.center.y + lid2.size.y / 2;
+        }
+
+        // Traverse scene to set shadow flags & hide board stones and lid stones
+        gltf.scene.traverse((node) => {
+          if (node instanceof THREE.Mesh) {
+            node.castShadow = true;
+            node.receiveShadow = true;
+
+            // Resolve Z-fighting on the model's baked grid plane mesh
+            if (node.name === 'Plane.001_Material_0') {
+              node.position.y += 0.001;
+              if (node.material) {
+                const mats = Array.isArray(node.material) ? node.material : [node.material];
+                mats.forEach(mat => {
+                  mat.polygonOffset = true;
+                  mat.polygonOffsetFactor = -1;
+                  mat.polygonOffsetUnits = -1;
+                });
+              }
+            }
+          }
+
+          const nameLower = node.name.toLowerCase();
+          if (nameLower.includes('stone')) {
+            const worldPos = new THREE.Vector3();
+            node.getWorldPosition(worldPos);
+
+            // Hide stone if it falls within the board boundaries
+            const isOnBoard = worldPos.x >= scaledBox.min.x && worldPos.x <= scaledBox.max.x &&
+                              worldPos.z >= scaledBox.min.z && worldPos.z <= scaledBox.max.z;
+
+            // Hide stone if it is on top of either the Black or White Lid (with a radius threshold of 1.4 units)
+            let isOnLid = false;
+            const lidRadiusThreshold = 1.4;
+            if (this.blackLidCenter) {
+              const distToBlackLid = new THREE.Vector2(worldPos.x, worldPos.z).distanceTo(new THREE.Vector2(this.blackLidCenter.x, this.blackLidCenter.z));
+              if (distToBlackLid < lidRadiusThreshold) isOnLid = true;
+            }
+            if (this.whiteLidCenter) {
+              const distToWhiteLid = new THREE.Vector2(worldPos.x, worldPos.z).distanceTo(new THREE.Vector2(this.whiteLidCenter.x, this.whiteLidCenter.z));
+              if (distToWhiteLid < lidRadiusThreshold) isOnLid = true;
+            }
+
+            if (isOnBoard || isOnLid) {
+              node.visible = false;
+            } else {
+              node.visible = true;
+            }
+          }
+        });
       }
 
       // Hide temporary procedural board
       this.boardMesh.visible = false;
-
-      // Detect wooden bowls and lids/covers from GLTF scene
-      const spheres: { mesh: THREE.Mesh, box: THREE.Box3, size: THREE.Vector3, center: THREE.Vector3 }[] = [];
-      gltf.scene.traverse((node) => {
-        if (node instanceof THREE.Mesh && node.name.startsWith('Sphere')) {
-          const box = new THREE.Box3().setFromObject(node);
-          const size = new THREE.Vector3();
-          box.getSize(size);
-          const center = new THREE.Vector3();
-          box.getCenter(center);
-          spheres.push({ mesh: node, box, size, center });
-        }
-      });
-
-      // Sort by size.y (height) ascending. The first two are the flatter lids/covers!
-      spheres.sort((a, b) => a.size.y - b.size.y);
-
-      if (spheres.length >= 4) {
-        const lid1 = spheres[0];
-        const lid2 = spheres[1];
-
-        // The one with larger X is the Black Lid (on the right)
-        // The one with smaller X is the White Lid (on the left)
-        if (lid1.center.x > lid2.center.x) {
-          this.blackLidCenter = lid1.center;
-          this.whiteLidCenter = lid2.center;
-        } else {
-          this.blackLidCenter = lid2.center;
-          this.whiteLidCenter = lid1.center;
-        }
-        
-        // Also get the height level on top of the lid
-        this.blackLidTopY = lid1.center.y + lid1.size.y / 2;
-        this.whiteLidTopY = lid2.center.y + lid2.size.y / 2;
-      }
 
       // Add GLTF scene
       this.gltfScene = gltf.scene;
