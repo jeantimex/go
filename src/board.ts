@@ -44,6 +44,7 @@ export class BoardRenderer {
   private boardSizeVec = new THREE.Vector3(20, 0.4, 20);
   private gridPlaneMesh: THREE.Mesh | null = null;
   private readonly overlayScale = 1.06;
+  private gltfScene: THREE.Group | null = null;
 
   // Event Listeners references for cleanup
   private clickListener!: (e: MouseEvent) => void;
@@ -198,6 +199,19 @@ export class BoardRenderer {
         if (node instanceof THREE.Mesh) {
           node.castShadow = true;
           node.receiveShadow = true;
+
+          // Resolve Z-fighting on the model's baked grid plane mesh
+          if (node.name === 'Plane.001_Material_0') {
+            node.position.y += 0.001;
+            if (node.material) {
+              const mats = Array.isArray(node.material) ? node.material : [node.material];
+              mats.forEach(mat => {
+                mat.polygonOffset = true;
+                mat.polygonOffsetFactor = -1;
+                mat.polygonOffsetUnits = -1;
+              });
+            }
+          }
         }
 
         // Hide pre-baked stone nodes case-insensitively
@@ -240,11 +254,14 @@ export class BoardRenderer {
           map: this.boardTex,
           transparent: true,
           opacity: 1.0,
-          roughness: 0.4
+          roughness: 0.4,
+          polygonOffset: true,
+          polygonOffsetFactor: -2,
+          polygonOffsetUnits: -2
         });
         
         this.gridPlaneMesh = new THREE.Mesh(planeGeom, planeMat);
-        this.gridPlaneMesh.position.set(this.boardCenterVec.x, this.boardTopY + 0.005, this.boardCenterVec.z);
+        this.gridPlaneMesh.position.set(this.boardCenterVec.x, this.boardTopY + 0.008, this.boardCenterVec.z);
         this.gridPlaneMesh.receiveShadow = true;
         this.scene.add(this.gridPlaneMesh);
       }
@@ -253,6 +270,7 @@ export class BoardRenderer {
       this.boardMesh.visible = false;
 
       // Add GLTF scene
+      this.gltfScene = gltf.scene;
       this.scene.add(gltf.scene);
       this.isGltfLoaded = true;
 
@@ -657,11 +675,10 @@ export class BoardRenderer {
       ctx.fillStyle = '#DCB468';
       ctx.fillRect(0, 0, size, size);
       this.drawWoodGrain(ctx, size);
+      this.drawGridLines(ctx);
+      this.drawStarPoints(ctx);
+      this.drawCoordinates(ctx);
     }
-
-    this.drawGridLines(ctx);
-    this.drawStarPoints(ctx);
-    this.drawCoordinates(ctx);
 
     if (this.showOwnership && this.analysis?.ownership) {
       this.drawOwnership2D(ctx);
@@ -887,6 +904,21 @@ export class BoardRenderer {
       } else if (this.gridPlaneMesh.material) {
         this.gridPlaneMesh.material.dispose();
       }
+    }
+
+    if (this.gltfScene) {
+      this.scene.remove(this.gltfScene);
+      this.gltfScene.traverse(node => {
+        if (node instanceof THREE.Mesh) {
+          if (node.geometry) node.geometry.dispose();
+          if (Array.isArray(node.material)) {
+            node.material.forEach(m => m.dispose());
+          } else if (node.material) {
+            node.material.dispose();
+          }
+        }
+      });
+      this.gltfScene = null;
     }
 
     this.renderer.dispose();
