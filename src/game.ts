@@ -1,6 +1,7 @@
 export type Stone = 'black' | 'white' | null;
 export type Position = { x: number; y: number };
 export type KataGoMove = [string, string]; // ["B" | "W", "D4"]
+export type GameMove = { color: 'black' | 'white'; x: number; y: number };
 
 export class GoGame {
   readonly size: number;
@@ -196,5 +197,82 @@ export class GoGame {
       const color = this.moveColors[i] === 'black' ? 'B' : 'W';
       return [color, this.posToGtp(pos.x, pos.y)];
     });
+  }
+
+  // Replay functionality
+  private loadedMoves: GameMove[] = [];
+  private currentMoveIndex: number = -1;
+  isReplayMode: boolean = false;
+
+  loadGame(moves: GameMove[]): void {
+    this.reset();
+    this.loadedMoves = moves;
+    this.currentMoveIndex = -1;
+    this.isReplayMode = true;
+  }
+
+  getTotalMoves(): number {
+    return this.loadedMoves.length;
+  }
+
+  getCurrentMoveNumber(): number {
+    return this.currentMoveIndex + 1;
+  }
+
+  goToMove(moveNumber: number): void {
+    if (!this.isReplayMode) return;
+
+    const targetIndex = Math.max(-1, Math.min(moveNumber - 1, this.loadedMoves.length - 1));
+
+    if (targetIndex < this.currentMoveIndex) {
+      this.board = Array.from({ length: this.size }, () => Array(this.size).fill(null));
+      this.currentPlayer = 'black';
+      this.lastMove = null;
+      this.koPosition = null;
+      this.captures = { black: 0, white: 0 };
+      this.moveHistory = [];
+      this.moveColors = [];
+      this.currentMoveIndex = -1;
+    }
+
+    while (this.currentMoveIndex < targetIndex) {
+      this.nextMove();
+    }
+  }
+
+  nextMove(): boolean {
+    if (!this.isReplayMode) return false;
+    if (this.currentMoveIndex >= this.loadedMoves.length - 1) return false;
+
+    this.currentMoveIndex++;
+    const move = this.loadedMoves[this.currentMoveIndex];
+
+    this.currentPlayer = move.color;
+    this.placeStone(move.x, move.y);
+
+    return true;
+  }
+
+  prevMove(): boolean {
+    if (!this.isReplayMode) return false;
+    if (this.currentMoveIndex < 0) return false;
+
+    this.goToMove(this.currentMoveIndex);
+    return true;
+  }
+
+  firstMove(): void {
+    this.goToMove(0);
+  }
+
+  lastMoveReplay(): void {
+    this.goToMove(this.loadedMoves.length);
+  }
+
+  exitReplayMode(): void {
+    this.loadedMoves = [];
+    this.currentMoveIndex = -1;
+    this.isReplayMode = false;
+    this.reset();
   }
 }

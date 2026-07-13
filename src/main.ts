@@ -1,6 +1,7 @@
 import { GoGame } from './game';
 import { BoardRenderer } from './board';
 import { analyzePosition, checkServerHealth, AnalysisResponse } from './analysis';
+import { parseSgf, GameInfo } from './sgf';
 import './style.css';
 
 class App {
@@ -15,6 +16,7 @@ class App {
   private winrateDisplay!: HTMLElement;
   private topMovesDisplay!: HTMLElement;
   private serverOnline = false;
+  private gameInfo: GameInfo | null = null;
 
   constructor() {
     this.game = new GoGame(19);
@@ -29,6 +31,8 @@ class App {
     };
     this.renderer.render();
     this.setupBoardSizeButtons();
+    this.setupFileInput();
+    this.setupReplayControls();
     this.checkServer();
   }
 
@@ -61,7 +65,57 @@ class App {
             <button data-size="13">13x13</button>
             <button data-size="19" class="active">19x19</button>
           </div>
-          <div class="turn-indicator">
+
+          <div class="game-info" id="game-info" style="display: none;">
+            <div class="player-info">
+              <div class="player black-player">
+                <div class="stone-icon black"></div>
+                <div class="player-details">
+                  <span class="player-name" id="black-name">Black</span>
+                  <span class="player-rank" id="black-rank"></span>
+                </div>
+              </div>
+              <div class="player white-player">
+                <div class="stone-icon white"></div>
+                <div class="player-details">
+                  <span class="player-name" id="white-name">White</span>
+                  <span class="player-rank" id="white-rank"></span>
+                </div>
+              </div>
+            </div>
+            <div class="game-details">
+              <div class="detail-row" id="result-row" style="display: none;">
+                <span class="detail-label">Result</span>
+                <span class="detail-value" id="game-result"></span>
+              </div>
+              <div class="detail-row" id="date-row" style="display: none;">
+                <span class="detail-label">Date</span>
+                <span class="detail-value" id="game-date"></span>
+              </div>
+              <div class="detail-row" id="event-row" style="display: none;">
+                <span class="detail-label">Event</span>
+                <span class="detail-value" id="game-event"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="replay-controls" id="replay-controls" style="display: none;">
+            <div class="move-counter">
+              Move <span id="current-move">0</span> / <span id="total-moves">0</span>
+            </div>
+            <div class="replay-slider-container">
+              <input type="range" id="move-slider" min="0" max="0" value="0" class="move-slider" />
+            </div>
+            <div class="replay-buttons">
+              <button id="first-btn" title="First">⏮</button>
+              <button id="prev-btn" title="Previous">◀</button>
+              <button id="next-btn" title="Next">▶</button>
+              <button id="last-btn" title="Last">⏭</button>
+            </div>
+            <button class="btn-exit-replay" id="exit-replay-btn">Exit Replay</button>
+          </div>
+
+          <div class="turn-indicator" id="turn-indicator">
             <div class="stone-icon black"></div>
             <span>Black's turn</span>
           </div>
@@ -79,6 +133,14 @@ class App {
           <div class="buttons">
             <button class="btn-pass" id="pass-btn">Pass</button>
             <button class="btn-reset" id="reset-btn">Reset</button>
+          </div>
+
+          <div class="load-section">
+            <h3>Load Game</h3>
+            <label class="btn-load" for="sgf-input">
+              Load SGF File
+              <input type="file" id="sgf-input" accept=".sgf" style="display: none;" />
+            </label>
           </div>
 
           <div class="analysis-section">
@@ -148,6 +210,178 @@ class App {
     this.analyzeBtn.addEventListener('click', () => this.analyze());
   }
 
+  private setupFileInput(): void {
+    const fileInput = document.getElementById('sgf-input') as HTMLInputElement;
+    fileInput.addEventListener('change', async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      const content = await file.text();
+      this.loadSgf(content);
+      fileInput.value = '';
+    });
+  }
+
+  private loadSgf(content: string): void {
+    const parsed = parseSgf(content);
+    this.gameInfo = parsed.info;
+
+    if (parsed.info.boardSize !== this.game.size) {
+      this.game = new GoGame(parsed.info.boardSize);
+      this.renderer = new BoardRenderer(
+        document.getElementById('board') as HTMLCanvasElement,
+        this.game
+      );
+      this.renderer.onMove = () => {
+        this.updateUI();
+        this.renderer.clearAnalysis();
+      };
+
+      const buttons = document.querySelectorAll('.board-size-selector button');
+      buttons.forEach((btn) => {
+        const size = parseInt((btn as HTMLElement).dataset.size!, 10);
+        btn.classList.toggle('active', size === parsed.info.boardSize);
+      });
+    }
+
+    this.game.loadGame(parsed.moves);
+    this.showGameInfo();
+    this.showReplayControls();
+    this.updateReplayUI();
+    this.renderer.render();
+  }
+
+  private showGameInfo(): void {
+    if (!this.gameInfo) return;
+
+    const infoEl = document.getElementById('game-info')!;
+    infoEl.style.display = 'block';
+
+    document.getElementById('black-name')!.textContent = this.gameInfo.blackPlayer;
+    document.getElementById('white-name')!.textContent = this.gameInfo.whitePlayer;
+    document.getElementById('black-rank')!.textContent = this.gameInfo.blackRank;
+    document.getElementById('white-rank')!.textContent = this.gameInfo.whiteRank;
+
+    const resultRow = document.getElementById('result-row')!;
+    if (this.gameInfo.result) {
+      resultRow.style.display = 'flex';
+      document.getElementById('game-result')!.textContent = this.gameInfo.result;
+    } else {
+      resultRow.style.display = 'none';
+    }
+
+    const dateRow = document.getElementById('date-row')!;
+    if (this.gameInfo.date) {
+      dateRow.style.display = 'flex';
+      document.getElementById('game-date')!.textContent = this.gameInfo.date;
+    } else {
+      dateRow.style.display = 'none';
+    }
+
+    const eventRow = document.getElementById('event-row')!;
+    if (this.gameInfo.event) {
+      eventRow.style.display = 'flex';
+      document.getElementById('game-event')!.textContent = this.gameInfo.event;
+    } else {
+      eventRow.style.display = 'none';
+    }
+  }
+
+  private showReplayControls(): void {
+    document.getElementById('replay-controls')!.style.display = 'block';
+    document.getElementById('turn-indicator')!.style.display = 'none';
+    document.querySelector('.buttons')!.setAttribute('style', 'display: none');
+
+    const slider = document.getElementById('move-slider') as HTMLInputElement;
+    slider.max = this.game.getTotalMoves().toString();
+    slider.value = '0';
+
+    document.getElementById('total-moves')!.textContent = this.game.getTotalMoves().toString();
+  }
+
+  private hideReplayControls(): void {
+    document.getElementById('replay-controls')!.style.display = 'none';
+    document.getElementById('game-info')!.style.display = 'none';
+    document.getElementById('turn-indicator')!.style.display = 'flex';
+    document.querySelector('.buttons')!.removeAttribute('style');
+  }
+
+  private setupReplayControls(): void {
+    document.getElementById('first-btn')!.addEventListener('click', () => {
+      this.game.firstMove();
+      this.updateReplayUI();
+      this.renderer.render();
+    });
+
+    document.getElementById('prev-btn')!.addEventListener('click', () => {
+      this.game.prevMove();
+      this.updateReplayUI();
+      this.renderer.render();
+    });
+
+    document.getElementById('next-btn')!.addEventListener('click', () => {
+      this.game.nextMove();
+      this.updateReplayUI();
+      this.renderer.render();
+    });
+
+    document.getElementById('last-btn')!.addEventListener('click', () => {
+      this.game.lastMoveReplay();
+      this.updateReplayUI();
+      this.renderer.render();
+    });
+
+    document.getElementById('exit-replay-btn')!.addEventListener('click', () => {
+      this.game.exitReplayMode();
+      this.gameInfo = null;
+      this.hideReplayControls();
+      this.renderer.render();
+      this.updateUI();
+    });
+
+    const slider = document.getElementById('move-slider') as HTMLInputElement;
+    slider.addEventListener('input', () => {
+      const moveNum = parseInt(slider.value, 10);
+      this.game.goToMove(moveNum);
+      this.updateReplayUI();
+      this.renderer.render();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (!this.game.isReplayMode) return;
+
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        this.game.prevMove();
+        this.updateReplayUI();
+        this.renderer.render();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        this.game.nextMove();
+        this.updateReplayUI();
+        this.renderer.render();
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        this.game.firstMove();
+        this.updateReplayUI();
+        this.renderer.render();
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        this.game.lastMoveReplay();
+        this.updateReplayUI();
+        this.renderer.render();
+      }
+    });
+  }
+
+  private updateReplayUI(): void {
+    const currentMove = this.game.getCurrentMoveNumber();
+    document.getElementById('current-move')!.textContent = currentMove.toString();
+    (document.getElementById('move-slider') as HTMLInputElement).value = currentMove.toString();
+    this.blackCaptures.textContent = this.game.captures.black.toString();
+    this.whiteCaptures.textContent = this.game.captures.white.toString();
+  }
+
   private async analyze(): Promise<void> {
     if (!this.serverOnline) return;
 
@@ -205,6 +439,7 @@ class App {
     const buttons = document.querySelectorAll('.board-size-selector button');
     buttons.forEach((btn) => {
       btn.addEventListener('click', () => {
+        if (this.game.isReplayMode) return;
         const size = parseInt((btn as HTMLElement).dataset.size!, 10);
         buttons.forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');

@@ -379,6 +379,186 @@ button:active {
   margin-top: 10px;
 }
 
+/* Game Info */
+.game-info {
+  background: #252525;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.player-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.player {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.player-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.player-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: #fff;
+}
+
+.player-rank {
+  font-size: 12px;
+  color: #888;
+}
+
+.game-details {
+  border-top: 1px solid #333;
+  padding-top: 12px;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.detail-label {
+  color: #888;
+}
+
+.detail-value {
+  color: #ccc;
+  font-weight: 500;
+}
+
+/* Replay Controls */
+.replay-controls {
+  background: #252525;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.move-counter {
+  text-align: center;
+  font-size: 14px;
+  color: #ccc;
+  margin-bottom: 12px;
+}
+
+.move-counter span {
+  font-weight: 700;
+  color: #fff;
+}
+
+.replay-slider-container {
+  margin-bottom: 12px;
+}
+
+.move-slider {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: #444;
+  outline: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.move-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #2980b9;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.move-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #2980b9;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.replay-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.replay-buttons button {
+  width: 44px;
+  height: 36px;
+  background: #444;
+  color: #fff;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.replay-buttons button:hover {
+  background: #555;
+}
+
+.btn-exit-replay {
+  width: 100%;
+  background: #555;
+  color: #fff;
+  padding: 10px;
+  font-size: 13px;
+}
+
+.btn-exit-replay:hover {
+  background: #666;
+}
+
+/* Load Section */
+.load-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #444;
+}
+
+.load-section h3 {
+  font-size: 11px;
+  color: #666;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-weight: 600;
+}
+
+.btn-load {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, #8e44ad, #9b59b6);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-load:hover {
+  box-shadow: 0 4px 12px rgba(142, 68, 173, 0.4);
+}
+
 @media (max-width: 800px) {
   .game-container {
     flex-direction: column;
