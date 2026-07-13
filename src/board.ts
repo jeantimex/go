@@ -52,6 +52,13 @@ export class BoardRenderer {
   private fillLight!: THREE.DirectionalLight;
   private pointLight!: THREE.PointLight;
 
+  // Captured stones positioning
+  private blackLidCenter: THREE.Vector3 | null = null;
+  private whiteLidCenter: THREE.Vector3 | null = null;
+  private blackLidTopY = 0;
+  private whiteLidTopY = 0;
+  private capturedStoneMeshes: THREE.Mesh[] = [];
+
   // Event Listeners references for cleanup
   private clickListener!: (e: MouseEvent) => void;
   private mousemoveListener!: (e: MouseEvent) => void;
@@ -201,7 +208,21 @@ export class BoardRenderer {
   private loadGltfModel(): void {
     const loader = new GLTFLoader();
     loader.load('go_board/scene.gltf', (gltf) => {
-      // 1. Traverse scene: set shadow flags & hide all pre-baked stones (group/mesh)
+      // Find board mesh to determine board boundaries for stone visibility filtering
+      const boardMesh = gltf.scene.getObjectByName('Board_Wood_0') as THREE.Mesh;
+      let minX = -10, maxX = 10, minZ = -10, maxZ = 10;
+      if (boardMesh) {
+        const boardBox = new THREE.Box3().setFromObject(boardMesh);
+        minX = boardBox.min.x;
+        maxX = boardBox.max.x;
+        minZ = boardBox.min.z;
+        maxZ = boardBox.max.z;
+      }
+
+      // Update matrices before querying positions
+      gltf.scene.updateMatrixWorld(true);
+
+      // 1. Traverse scene: set shadow flags & hide pre-baked game stones on the board, leaving bowl stones visible
       gltf.scene.traverse((node) => {
         if (node instanceof THREE.Mesh) {
           node.castShadow = true;
@@ -221,15 +242,21 @@ export class BoardRenderer {
           }
         }
 
-        // Hide pre-baked stone nodes case-insensitively
+        // Only hide pre-baked stones if they are physically on the board grid area
         const nameLower = node.name.toLowerCase();
         if (nameLower.includes('stone')) {
-          node.visible = false;
+          const worldPos = new THREE.Vector3();
+          node.getWorldPosition(worldPos);
+
+          if (worldPos.x >= minX && worldPos.x <= maxX && worldPos.z >= minZ && worldPos.z <= maxZ) {
+            node.visible = false;
+          } else {
+            node.visible = true;
+          }
         }
       });
 
       // 2. Locate board mesh and align dimensions with scaling
-      const boardMesh = gltf.scene.getObjectByName('Board_Wood_0') as THREE.Mesh;
       if (boardMesh) {
         // Calculate raw size of board in GLTF
         const box = new THREE.Box3().setFromObject(boardMesh);
@@ -275,6 +302,41 @@ export class BoardRenderer {
 
       // Hide temporary procedural board
       this.boardMesh.visible = false;
+
+      // Detect wooden bowls and lids/covers from GLTF scene
+      const spheres: { mesh: THREE.Mesh, box: THREE.Box3, size: THREE.Vector3, center: THREE.Vector3 }[] = [];
+      gltf.scene.traverse((node) => {
+        if (node instanceof THREE.Mesh && node.name.startsWith('Sphere')) {
+          const box = new THREE.Box3().setFromObject(node);
+          const size = new THREE.Vector3();
+          box.getSize(size);
+          const center = new THREE.Vector3();
+          box.getCenter(center);
+          spheres.push({ mesh: node, box, size, center });
+        }
+      });
+
+      // Sort by size.y (height) ascending. The first two are the flatter lids/covers!
+      spheres.sort((a, b) => a.size.y - b.size.y);
+
+      if (spheres.length >= 4) {
+        const lid1 = spheres[0];
+        const lid2 = spheres[1];
+
+        // The one with larger X is the Black Lid (on the right)
+        // The one with smaller X is the White Lid (on the left)
+        if (lid1.center.x > lid2.center.x) {
+          this.blackLidCenter = lid1.center;
+          this.whiteLidCenter = lid2.center;
+        } else {
+          this.blackLidCenter = lid2.center;
+          this.whiteLidCenter = lid1.center;
+        }
+        
+        // Also get the height level on top of the lid
+        this.blackLidTopY = lid1.center.y + lid1.size.y / 2;
+        this.whiteLidTopY = lid2.center.y + lid2.size.y / 2;
+      }
 
       // Add GLTF scene
       this.gltfScene = gltf.scene;
@@ -648,6 +710,9 @@ export class BoardRenderer {
       this.scene.remove(this.markerMesh);
       this.markerMesh = null;
     }
+
+    // 6. Sync Captured Stones on the Bowl Lids
+    this.updateCapturedStones3D();
   }
 
   private createStoneMesh(x: number, y: number, color: 'black' | 'white'): void {
@@ -903,6 +968,72 @@ export class BoardRenderer {
     });
   }
 
+  private updateCapturedStones3D(): void {
+    // Clear old captured stone meshes
+    this.capturedStoneMeshes.forEach(mesh => {
+      this.scene.remove(mesh);
+      if (mesh.geometry) mesh.geometry.dispose();
+    });
+    this.capturedStoneMeshes = [];
+
+    if (!this.isGltfLoaded || !this.blackLidCenter || !this.whiteLidCenter) return;
+
+    // Black captured white stones (placed on Black Lid)
+    const whiteCapturedCount = this.game.captures.black;
+    for (let i = 0; i < whiteCapturedCount; i++) {
+      const mesh = new THREE.Mesh(this.stoneGeom, this.whiteMat);
+      mesh.position.copy(this.getCapturedStonePosition(i, this.blackLidCenter, this.blackLidTopY));
+      const scale = 0.85; // Captured stones are slightly smaller
+      mesh.scale.set(scale, scale, scale);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      this.scene.add(mesh);
+      this.capturedStoneMeshes.push(mesh);
+    }
+
+    // White captured black stones (placed on White Lid)
+    const blackCapturedCount = this.game.captures.white;
+    for (let i = 0; i < blackCapturedCount; i++) {
+      const mesh = new THREE.Mesh(this.stoneGeom, this.blackMat);
+      mesh.position.copy(this.getCapturedStonePosition(i, this.whiteLidCenter, this.whiteLidTopY));
+      const scale = 0.85; // Captured stones are slightly smaller
+      mesh.scale.set(scale, scale, scale);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      this.scene.add(mesh);
+      this.capturedStoneMeshes.push(mesh);
+    }
+  }
+
+  private getCapturedStonePosition(index: number, lidCenter: THREE.Vector3, lidTopY: number): THREE.Vector3 {
+    // Arrange in a neat, slightly jittered spiral grid layout
+    const radiusStep = 0.15;
+    const angleStep = 0.65; // spiral step in radians
+
+    if (index === 0) {
+      return new THREE.Vector3(lidCenter.x, lidTopY + 0.02, lidCenter.z);
+    }
+
+    // Concentric spiral rings
+    const r = Math.sqrt(index) * radiusStep;
+    const theta = index * angleStep;
+
+    // Slight hand-placed jitter (deterministic seed to avoid vibration during rotations)
+    const seed = index * 12345.67;
+    const jitterX = (Math.sin(seed) * 0.5) * 0.04;
+    const jitterZ = (Math.cos(seed) * 0.5) * 0.04;
+    
+    // Stack layers of stones if there are many captured stones
+    const layer = Math.floor(index / 12);
+    const stackY = layer * 0.08;
+
+    return new THREE.Vector3(
+      lidCenter.x + r * Math.cos(theta) + jitterX,
+      lidTopY + 0.02 + stackY,
+      lidCenter.z + r * Math.sin(theta) + jitterZ
+    );
+  }
+
   dispose(): void {
     this.canvas.removeEventListener('click', this.clickListener);
     this.canvas.removeEventListener('mousemove', this.mousemoveListener);
@@ -976,6 +1107,12 @@ export class BoardRenderer {
       });
       this.gltfScene = null;
     }
+
+    this.capturedStoneMeshes.forEach(mesh => {
+      this.scene.remove(mesh);
+      if (mesh.geometry) mesh.geometry.dispose();
+    });
+    this.capturedStoneMeshes = [];
 
     this.renderer.dispose();
   }
