@@ -45,6 +45,8 @@ export class BoardRenderer {
   private gridPlaneMesh: THREE.Mesh | null = null;
   private readonly overlayScale = 1.06;
   private gltfScene: THREE.Group | null = null;
+  private gridHelper: THREE.GridHelper | null = null;
+  private floorMesh: THREE.Mesh | null = null;
 
   // Lights
   private ambientLight!: THREE.AmbientLight;
@@ -92,6 +94,24 @@ export class BoardRenderer {
     const height = this.canvas.clientHeight || 600;
 
     this.scene = new THREE.Scene();
+    
+    // Set up foggy grid helper background matching threejs.org/examples/#webgl_animation_skinning_morph
+    this.scene.background = new THREE.Color(0xe0e0e0);
+    this.scene.fog = new THREE.Fog(0xe0e0e0, 20, 100);
+
+    // Grid floor helper
+    this.gridHelper = new THREE.GridHelper(200, 40, 0x000000, 0x000000);
+    this.gridHelper.material.opacity = 0.2;
+    this.gridHelper.material.transparent = true;
+    this.scene.add(this.gridHelper);
+
+    // Create a shadow-receiving floor plane (shadow catcher)
+    const floorMat = new THREE.ShadowMaterial({ opacity: 0.15 });
+    const floorGeom = new THREE.PlaneGeometry(200, 200);
+    floorGeom.rotateX(-Math.PI / 2);
+    this.floorMesh = new THREE.Mesh(floorGeom, floorMat);
+    this.floorMesh.receiveShadow = true;
+    this.scene.add(this.floorMesh);
 
     // Perspective Camera for beautiful 3D view and OrbitControls
     this.camera = new THREE.PerspectiveCamera(35, width / height, 0.1, 100);
@@ -99,7 +119,7 @@ export class BoardRenderer {
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
       antialias: true,
-      alpha: true
+      alpha: false // Solid background clear color
     });
     this.renderer.setPixelRatio(window.devicePixelRatio || 1);
     this.renderer.shadowMap.enabled = true;
@@ -232,6 +252,28 @@ export class BoardRenderer {
         scaledBox.getSize(this.boardSizeVec);
         scaledBox.getCenter(this.boardCenterVec);
         this.boardTopY = this.boardCenterVec.y + this.boardSizeVec.y / 2;
+
+        // Find the absolute lowest Y coordinate among all visible wood meshes (to find the bottom of the legs)
+        let absoluteMinY = Infinity;
+        gltf.scene.traverse((node) => {
+          if (node instanceof THREE.Mesh && node.visible) {
+            const nameLower = node.name.toLowerCase();
+            if (nameLower.includes('wood')) {
+              const meshBox = new THREE.Box3().setFromObject(node);
+              if (meshBox.min.y < absoluteMinY) {
+                absoluteMinY = meshBox.min.y;
+              }
+            }
+          }
+        });
+        const floorY = absoluteMinY === Infinity ? 0 : absoluteMinY;
+
+        if (this.gridHelper) {
+          this.gridHelper.position.y = floorY;
+        }
+        if (this.floorMesh) {
+          this.floorMesh.position.y = floorY;
+        }
 
         // Create transparent grid overlay plane
         const planeGeom = new THREE.PlaneGeometry(this.boardSizeVec.x * this.overlayScale, this.boardSizeVec.z * this.overlayScale);
@@ -1092,6 +1134,26 @@ export class BoardRenderer {
         this.gridPlaneMesh.material.forEach(m => m.dispose());
       } else if (this.gridPlaneMesh.material) {
         this.gridPlaneMesh.material.dispose();
+      }
+    }
+
+    if (this.gridHelper) {
+      this.scene.remove(this.gridHelper);
+      if (this.gridHelper.geometry) this.gridHelper.geometry.dispose();
+      if (Array.isArray(this.gridHelper.material)) {
+        this.gridHelper.material.forEach(m => m.dispose());
+      } else if (this.gridHelper.material) {
+        this.gridHelper.material.dispose();
+      }
+    }
+
+    if (this.floorMesh) {
+      this.scene.remove(this.floorMesh);
+      if (this.floorMesh.geometry) this.floorMesh.geometry.dispose();
+      if (Array.isArray(this.floorMesh.material)) {
+        this.floorMesh.material.forEach(m => m.dispose());
+      } else if (this.floorMesh.material) {
+        this.floorMesh.material.dispose();
       }
     }
 
