@@ -62,6 +62,8 @@ export class BoardRenderer {
   private whiteLidTopY = 0;
   private capturedStoneMeshes: THREE.Mesh[] = [];
   private lidScatterRadius = 1.0;
+  private readonly capturedStoneScale = 0.95;
+  private readonly capturedStoneRadius = 0.46 * this.capturedStoneScale;
 
   // Cannon.js Physics
   private world!: CANNON.World;
@@ -694,8 +696,7 @@ export class BoardRenderer {
           const dz = stone.body.position.z - center.z;
           const dist = Math.sqrt(dx * dx + dz * dz);
 
-          const stoneRadius = 0.39;
-          const maxRadius = this.lidScatterRadius - stoneRadius;
+          const maxRadius = this.lidScatterRadius - this.capturedStoneRadius;
 
           if (dist > maxRadius && maxRadius > 0) {
             const angle = Math.atan2(dz, dx);
@@ -1175,12 +1176,19 @@ export class BoardRenderer {
     const stone = this.game.getStone(x, y);
     const color = stone === 'black' ? 0xffffff : 0x000000;
     const pos = this.get3DPosition(x, y);
-    pos.y += 0.22 * scale; // Float slightly above the stone
+    // Stone center is lifted 0.08 and its scaled half-height is ~0.175.
+    // Keep the marker above the curved crown with a small safety gap.
+    pos.y += 0.28 * scale;
 
     if (this.lastMoveMarkerType === 'circle') {
       const circleGeom = new THREE.RingGeometry(0.12 * scale, 0.16 * scale, 32);
       circleGeom.rotateX(-Math.PI / 2);
-      const mat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide });
+      const mat = new THREE.MeshBasicMaterial({
+        color,
+        side: THREE.DoubleSide,
+        depthTest: false,
+        depthWrite: false,
+      });
       this.markerMesh = new THREE.Mesh(circleGeom, mat);
       this.markerMesh.position.copy(pos);
       this.scene.add(this.markerMesh);
@@ -1191,7 +1199,12 @@ export class BoardRenderer {
         new THREE.Vector2(0.13 * scale, -0.1 * scale)
       ]));
       triGeom.rotateX(-Math.PI / 2);
-      const mat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide });
+      const mat = new THREE.MeshBasicMaterial({
+        color,
+        side: THREE.DoubleSide,
+        depthTest: false,
+        depthWrite: false,
+      });
       this.markerMesh = new THREE.Mesh(triGeom, mat);
       this.markerMesh.position.copy(pos);
       this.scene.add(this.markerMesh);
@@ -1214,12 +1227,18 @@ export class BoardRenderer {
         const mat = new THREE.MeshBasicMaterial({
           map: numTex,
           transparent: true,
-          side: THREE.DoubleSide
+          side: THREE.DoubleSide,
+          depthTest: false,
+          depthWrite: false,
         });
         this.markerMesh = new THREE.Mesh(numGeom, mat);
         this.markerMesh.position.copy(pos);
         this.scene.add(this.markerMesh);
       }
+    }
+
+    if (this.markerMesh) {
+      this.markerMesh.renderOrder = 100;
     }
   }
 
@@ -1440,7 +1459,7 @@ export class BoardRenderer {
       for (let i = 0; i < spawnCount; i++) {
         // Spawn stone mesh
         const mesh = new THREE.Mesh(this.stoneGeom, material);
-        const scale = 0.85; // Captured stones are slightly smaller
+        const scale = this.capturedStoneScale;
         mesh.scale.set(scale, scale, scale);
         mesh.castShadow = true;
         mesh.receiveShadow = true;

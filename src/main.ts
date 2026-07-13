@@ -167,7 +167,7 @@ class App {
                   <option value="none">None</option>
                   <option value="circle">Circle</option>
                   <option value="triangle">Triangle</option>
-                  <option value="step">Move Number</option>
+                  <option value="number">Move Number</option>
                 </select>
               </label>
             </div>
