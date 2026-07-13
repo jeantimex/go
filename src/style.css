@@ -180,6 +180,141 @@ button:active {
   box-shadow: 0 2px 8px rgba(41, 128, 185, 0.4);
 }
 
+.analysis-section {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #444;
+}
+
+.analysis-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.analysis-header h3 {
+  font-size: 11px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-weight: 600;
+}
+
+.status-badge {
+  font-size: 10px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-badge.online {
+  background: rgba(39, 174, 96, 0.2);
+  color: #27ae60;
+}
+
+.status-badge.offline {
+  background: rgba(231, 76, 60, 0.2);
+  color: #e74c3c;
+}
+
+.btn-analyze {
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, #3498db, #2980b9);
+  color: #fff;
+  font-weight: 600;
+  border-radius: 10px;
+  margin-bottom: 14px;
+}
+
+.btn-analyze:hover:not(:disabled) {
+  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4);
+}
+
+.btn-analyze:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.analysis-results {
+  background: #252525;
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.winrate-bar {
+  height: 32px;
+  background: linear-gradient(90deg, #222 50%, #eee 50%);
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+}
+
+.winrate-fill {
+  display: none;
+}
+
+.winrate-black, .winrate-white {
+  font-size: 12px;
+  font-weight: 700;
+  z-index: 1;
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+
+.winrate-black {
+  color: #fff;
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.winrate-white {
+  color: #222;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.top-moves {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.move-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.move-rank {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.move-coord {
+  flex: 1;
+  color: #ccc;
+  font-family: monospace;
+}
+
+.move-winrate {
+  color: #888;
+  font-size: 12px;
+}
+
 .settings {
   margin-top: 24px;
   padding-top: 20px;
@@ -238,6 +373,10 @@ button:active {
 
 .toggle-setting input:checked + .toggle-switch::after {
   transform: translateX(20px);
+}
+
+.toggle-setting + .toggle-setting {
+  margin-top: 10px;
 }
 
 @media (max-width: 800px) {

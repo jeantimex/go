@@ -1,0 +1,20 @@
+2026-07-12 22:27:24-0700: Running with following config:
+logDir = analysis_logs
+maxVisits = 500
+nnCacheSizePowerOfTwo = 23
+nnMaxBatchSize = 64
+nnMutexPoolSizePowerOfTwo = 17
+nnRandomize = true
+numAnalysisThreads = 2
+numSearchThreads = 16
+reportAnalysisWinratesAs = BLACK
+
+2026-07-12 22:27:24-0700: Analysis Engine starting...
+2026-07-12 22:27:24-0700: KataGo v1.16.4
+2026-07-12 22:27:24-0700: nnRandSeed0 = 16621859144660033876
+2026-07-12 22:27:24-0700: After dedups: nnModelFile0 = /opt/homebrew/share/katago/kata1-b18c384nbt-s9996604416-d4316597426.bin.gz useFP16 auto useNHWC auto
+2026-07-12 22:27:24-0700: Initializing neural net buffer to be size 19 * 19 allowing smaller boards
+2026-07-12 22:27:25-0700: Loaded config /opt/homebrew/share/katago/configs/analysis_example.cfg
+2026-07-12 22:27:25-0700: Loaded model /opt/homebrew/share/katago/kata1-b18c384nbt-s9996604416-d4316597426.bin.gz
+2026-07-12 22:27:25-0700: Analyzing up to 2 positions at a time in parallel
+2026-07-12 22:27:25-0700: Started, ready to begin handling requests

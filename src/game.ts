@@ -1,5 +1,6 @@
 export type Stone = 'black' | 'white' | null;
 export type Position = { x: number; y: number };
+export type KataGoMove = [string, string]; // ["B" | "W", "D4"]
 
 export class GoGame {
   readonly size: number;
@@ -150,6 +151,7 @@ export class GoGame {
 
     this.lastMove = { x, y };
     this.moveHistory.push({ x, y });
+    this.moveColors.push(this.currentPlayer);
     this.currentPlayer = opponent;
 
     return true;
@@ -168,5 +170,31 @@ export class GoGame {
     this.koPosition = null;
     this.captures = { black: 0, white: 0 };
     this.moveHistory = [];
+    this.moveColors = [];
+  }
+
+  private moveColors: ('black' | 'white')[] = [];
+
+  private posToGtp(x: number, y: number): string {
+    const letters = 'ABCDEFGHJKLMNOPQRST';
+    return `${letters[x]}${this.size - y}`;
+  }
+
+  gtpToPos(gtp: string): Position | null {
+    if (gtp === 'pass') return null;
+    const letters = 'ABCDEFGHJKLMNOPQRST';
+    const col = letters.indexOf(gtp[0].toUpperCase());
+    const row = this.size - parseInt(gtp.slice(1), 10);
+    if (col >= 0 && row >= 0 && row < this.size) {
+      return { x: col, y: row };
+    }
+    return null;
+  }
+
+  getKataGoMoves(): KataGoMove[] {
+    return this.moveHistory.map((pos, i) => {
+      const color = this.moveColors[i] === 'black' ? 'B' : 'W';
+      return [color, this.posToGtp(pos.x, pos.y)];
+    });
   }
 }

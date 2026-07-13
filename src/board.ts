@@ -1,13 +1,17 @@
 import { GoGame, Position } from './game';
+import { AnalysisResponse } from './analysis';
 
 export class BoardRenderer {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private game: GoGame;
-  private cellSize: number = 30;
+  private cellSize: number = 32;
   private padding: number = 40;
   private hoverPos: Position | null = null;
   showLastMove: boolean = true;
+  showOwnership: boolean = false;
+  private analysis: AnalysisResponse | null = null;
+  private boardCache: HTMLCanvasElement | null = null;
 
   private readonly starPoints19 = [
     [3, 3], [9, 3], [15, 3],
@@ -43,6 +47,7 @@ export class BoardRenderer {
     this.canvas.style.width = `${boardPixelSize}px`;
     this.canvas.style.height = `${boardPixelSize}px`;
     this.ctx.scale(dpr, dpr);
+    this.boardCache = null;
   }
 
   private setupEventListeners(): void {
@@ -82,59 +87,85 @@ export class BoardRenderer {
 
   onMove?: () => void;
 
+  setAnalysis(analysis: AnalysisResponse | null): void {
+    this.analysis = analysis;
+    this.render();
+  }
+
+  clearAnalysis(): void {
+    this.analysis = null;
+  }
+
   render(): void {
     this.drawBoard();
+    if (this.showOwnership && this.analysis?.ownership) {
+      this.drawOwnership();
+    }
     this.drawStones();
+    if (this.analysis) {
+      this.drawSuggestedMoves();
+    }
     this.drawHoverStone();
   }
 
   private drawBoard(): void {
     const size = this.cellSize * (this.game.size - 1) + this.padding * 2;
 
-    this.ctx.fillStyle = '#DEB887';
-    this.ctx.fillRect(0, 0, size, size);
+    if (!this.boardCache) {
+      this.boardCache = document.createElement('canvas');
+      this.boardCache.width = size;
+      this.boardCache.height = size;
+      const cacheCtx = this.boardCache.getContext('2d')!;
 
-    this.drawWoodGrain(size);
-    this.drawGridLines();
-    this.drawStarPoints();
-    this.drawCoordinates();
+      cacheCtx.fillStyle = '#DCB468';
+      cacheCtx.fillRect(0, 0, size, size);
+
+      this.drawWoodGrain(cacheCtx, size);
+      this.drawGridLines(cacheCtx);
+      this.drawStarPoints(cacheCtx);
+      this.drawCoordinates(cacheCtx);
+    }
+
+    this.ctx.drawImage(this.boardCache, 0, 0);
   }
 
-  private drawWoodGrain(size: number): void {
-    this.ctx.save();
-    this.ctx.globalAlpha = 0.1;
-    for (let i = 0; i < size; i += 8) {
-      this.ctx.strokeStyle = '#8B4513';
-      this.ctx.lineWidth = Math.random() * 2 + 0.5;
-      this.ctx.beginPath();
-      this.ctx.moveTo(0, i + Math.random() * 4);
+  private drawWoodGrain(ctx: CanvasRenderingContext2D, size: number): void {
+    ctx.save();
+    ctx.globalAlpha = 0.12;
+    for (let i = 0; i < size; i += 4) {
+      ctx.strokeStyle = '#B8956B';
+      ctx.lineWidth = Math.random() * 1.5 + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(0, i + Math.random() * 2);
       let x = 0;
       while (x < size) {
-        x += Math.random() * 20 + 10;
-        this.ctx.lineTo(x, i + Math.random() * 4);
+        x += Math.random() * 20 + 8;
+        ctx.lineTo(x, i + Math.random() * 1.5);
       }
-      this.ctx.stroke();
+      ctx.stroke();
     }
-    this.ctx.restore();
+    ctx.restore();
   }
 
-  private drawGridLines(): void {
-    this.ctx.strokeStyle = '#333';
-    this.ctx.lineWidth = 1;
+  private drawGridLines(ctx: CanvasRenderingContext2D): void {
+    ctx.strokeStyle = '#222';
+    ctx.lineWidth = 1;
+
+    const start = this.padding;
+    const end = this.padding + (this.game.size - 1) * this.cellSize;
 
     for (let i = 0; i < this.game.size; i++) {
-      const pos = this.padding + i * this.cellSize;
-      const end = this.padding + (this.game.size - 1) * this.cellSize;
+      const pos = Math.floor(this.padding + i * this.cellSize) + 0.5;
 
-      this.ctx.beginPath();
-      this.ctx.moveTo(pos, this.padding);
-      this.ctx.lineTo(pos, end);
-      this.ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(pos, start);
+      ctx.lineTo(pos, end);
+      ctx.stroke();
 
-      this.ctx.beginPath();
-      this.ctx.moveTo(this.padding, pos);
-      this.ctx.lineTo(end, pos);
-      this.ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(start, pos);
+      ctx.lineTo(end, pos);
+      ctx.stroke();
     }
   }
 
@@ -145,24 +176,24 @@ export class BoardRenderer {
     return [];
   }
 
-  private drawStarPoints(): void {
-    this.ctx.fillStyle = '#333';
+  private drawStarPoints(ctx: CanvasRenderingContext2D): void {
+    ctx.fillStyle = '#222';
     const starPoints = this.getStarPoints();
 
     for (const [x, y] of starPoints) {
       const px = this.padding + x * this.cellSize;
       const py = this.padding + y * this.cellSize;
-      this.ctx.beginPath();
-      this.ctx.arc(px, py, 4, 0, Math.PI * 2);
-      this.ctx.fill();
+      ctx.beginPath();
+      ctx.arc(px, py, 4.5, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
-  private drawCoordinates(): void {
-    this.ctx.fillStyle = '#333';
-    this.ctx.font = '12px sans-serif';
-    this.ctx.textAlign = 'center';
-    this.ctx.textBaseline = 'middle';
+  private drawCoordinates(ctx: CanvasRenderingContext2D): void {
+    ctx.fillStyle = '#444';
+    ctx.font = '600 13px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
 
     const letters = 'ABCDEFGHJKLMNOPQRST';
 
@@ -170,12 +201,12 @@ export class BoardRenderer {
       const x = this.padding + i * this.cellSize;
       const y = this.padding + i * this.cellSize;
 
-      this.ctx.fillText(letters[i], x, 15);
-      this.ctx.fillText(letters[i], x, this.padding + (this.game.size - 1) * this.cellSize + 25);
+      ctx.fillText(letters[i], x, 14);
+      ctx.fillText(letters[i], x, this.padding + (this.game.size - 1) * this.cellSize + 26);
 
       const num = (this.game.size - i).toString();
-      this.ctx.fillText(num, 15, y);
-      this.ctx.fillText(num, this.padding + (this.game.size - 1) * this.cellSize + 25, y);
+      ctx.fillText(num, 14, y);
+      ctx.fillText(num, this.padding + (this.game.size - 1) * this.cellSize + 26, y);
     }
   }
 
@@ -197,24 +228,24 @@ export class BoardRenderer {
   private drawStone(x: number, y: number, color: 'black' | 'white'): void {
     const px = this.padding + x * this.cellSize;
     const py = this.padding + y * this.cellSize;
-    const radius = this.cellSize * 0.45;
+    const radius = this.cellSize * 0.46;
 
     // Draw soft shadow
-    const shadowOffset = 3;
+    const shadowOffset = 2.5;
     const shadowGradient = this.ctx.createRadialGradient(
       px + shadowOffset,
       py + shadowOffset,
       radius * 0.5,
       px + shadowOffset,
       py + shadowOffset,
-      radius * 1.2
+      radius * 1.15
     );
-    shadowGradient.addColorStop(0, 'rgba(0, 0, 0, 0.4)');
-    shadowGradient.addColorStop(0.6, 'rgba(0, 0, 0, 0.15)');
+    shadowGradient.addColorStop(0, 'rgba(0, 0, 0, 0.35)');
+    shadowGradient.addColorStop(0.6, 'rgba(0, 0, 0, 0.12)');
     shadowGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
     this.ctx.beginPath();
-    this.ctx.arc(px + shadowOffset, py + shadowOffset, radius * 1.2, 0, Math.PI * 2);
+    this.ctx.arc(px + shadowOffset, py + shadowOffset, radius * 1.15, 0, Math.PI * 2);
     this.ctx.fillStyle = shadowGradient;
     this.ctx.fill();
 
@@ -223,20 +254,22 @@ export class BoardRenderer {
     this.ctx.arc(px, py, radius, 0, Math.PI * 2);
 
     const gradient = this.ctx.createRadialGradient(
-      px - radius * 0.3,
-      py - radius * 0.3,
-      radius * 0.1,
+      px - radius * 0.35,
+      py - radius * 0.35,
+      radius * 0.05,
       px,
       py,
       radius
     );
 
     if (color === 'black') {
-      gradient.addColorStop(0, '#555');
-      gradient.addColorStop(1, '#111');
+      gradient.addColorStop(0, '#4a4a4a');
+      gradient.addColorStop(0.5, '#222');
+      gradient.addColorStop(1, '#0a0a0a');
     } else {
       gradient.addColorStop(0, '#fff');
-      gradient.addColorStop(1, '#ddd');
+      gradient.addColorStop(0.5, '#f5f5f5');
+      gradient.addColorStop(1, '#d8d8d8');
     }
 
     this.ctx.fillStyle = gradient;
@@ -246,17 +279,83 @@ export class BoardRenderer {
   private drawLastMoveMarker(x: number, y: number): void {
     const px = this.padding + x * this.cellSize;
     const py = this.padding + y * this.cellSize;
-    const size = this.cellSize * 0.25;
+    const radius = this.cellSize * 0.15;
     const stone = this.game.getStone(x, y);
 
-    this.ctx.strokeStyle = stone === 'black' ? '#fff' : '#000';
-    this.ctx.lineWidth = 2;
+    this.ctx.fillStyle = stone === 'black' ? '#fff' : '#000';
     this.ctx.beginPath();
-    this.ctx.moveTo(px, py - size);
-    this.ctx.lineTo(px + size * 0.866, py + size * 0.5);
-    this.ctx.lineTo(px - size * 0.866, py + size * 0.5);
-    this.ctx.closePath();
-    this.ctx.stroke();
+    this.ctx.arc(px, py, radius, 0, Math.PI * 2);
+    this.ctx.fill();
+  }
+
+  private drawOwnership(): void {
+    if (!this.analysis?.ownership) return;
+
+    const ownership = this.analysis.ownership;
+    const markerSize = this.cellSize * 0.22;
+
+    for (let y = 0; y < this.game.size; y++) {
+      for (let x = 0; x < this.game.size; x++) {
+        const idx = y * this.game.size + x;
+        const value = ownership[idx];
+        if (Math.abs(value) < 0.5) continue;
+
+        const px = this.padding + x * this.cellSize;
+        const py = this.padding + y * this.cellSize;
+        const stone = this.game.getStone(x, y);
+        const isBlackTerritory = value > 0;
+
+        const shouldDraw =
+          stone === null ||
+          (stone === 'black' && !isBlackTerritory) ||
+          (stone === 'white' && isBlackTerritory);
+
+        if (shouldDraw) {
+          const x1 = px - markerSize / 2;
+          const y1 = py - markerSize / 2;
+
+          if (isBlackTerritory) {
+            this.ctx.fillStyle = '#111';
+            this.ctx.fillRect(x1, y1, markerSize, markerSize);
+          } else {
+            this.ctx.fillStyle = '#fff';
+            this.ctx.fillRect(x1, y1, markerSize, markerSize);
+            this.ctx.strokeStyle = '#333';
+            this.ctx.lineWidth = 1;
+            this.ctx.strokeRect(x1, y1, markerSize, markerSize);
+          }
+        }
+      }
+    }
+  }
+
+  private drawSuggestedMoves(): void {
+    if (!this.analysis?.topMoves) return;
+
+    const topMoves = this.analysis.topMoves.slice(0, 3);
+    topMoves.forEach((move, index) => {
+      const pos = this.game.gtpToPos(move.move);
+      if (!pos) return;
+      if (this.game.getStone(pos.x, pos.y) !== null) return;
+
+      const px = this.padding + pos.x * this.cellSize;
+      const py = this.padding + pos.y * this.cellSize;
+      const radius = this.cellSize * 0.35;
+
+      const colors = ['#27ae60', '#f39c12', '#3498db'];
+      this.ctx.globalAlpha = 0.85;
+      this.ctx.fillStyle = colors[index];
+      this.ctx.beginPath();
+      this.ctx.arc(px, py, radius, 0, Math.PI * 2);
+      this.ctx.fill();
+
+      this.ctx.fillStyle = '#fff';
+      this.ctx.font = `bold ${this.cellSize * 0.35}px sans-serif`;
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText(`${index + 1}`, px, py);
+      this.ctx.globalAlpha = 1;
+    });
   }
 
   private drawHoverStone(): void {
