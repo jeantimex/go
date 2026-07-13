@@ -97,7 +97,7 @@ export class BoardRenderer {
     
     // Set up foggy grid helper background matching threejs.org/examples/#webgl_animation_skinning_morph
     this.scene.background = new THREE.Color(0xe0e0e0);
-    this.scene.fog = new THREE.Fog(0xe0e0e0, 20, 100);
+    this.scene.fog = new THREE.Fog(0xe0e0e0, 45, 120); // Pushed fog start out to 45 so the board stays perfectly crisp
 
     // Grid floor helper
     this.gridHelper = new THREE.GridHelper(200, 40, 0x000000, 0x000000);
@@ -123,7 +123,7 @@ export class BoardRenderer {
     });
     this.renderer.setPixelRatio(window.devicePixelRatio || 1);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap; // Default shadow mapping type (VSM is selectable in Scene settings)
     this.renderer.setSize(width, height, false);
 
     // Setup OrbitControls
@@ -167,23 +167,26 @@ export class BoardRenderer {
     this.scene.add(this.boardMesh);
 
     // Setup Lights (Rich multi-directional setup for high fidelity 3D highlights)
-    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
     this.scene.add(this.ambientLight);
 
     // Warm key light
-    this.keyLight = new THREE.DirectionalLight(0xfff7e6, 1.25);
+    this.keyLight = new THREE.DirectionalLight(0xfff7e6, 2.0);
     this.keyLight.position.set(8, 15, 6);
     this.keyLight.castShadow = true;
-    this.keyLight.shadow.mapSize.width = 1024;
+    this.keyLight.shadow.mapSize.width = 1024; // Default to 1024 matching UI reset
     this.keyLight.shadow.mapSize.height = 1024;
     this.keyLight.shadow.camera.near = 0.5;
-    this.keyLight.shadow.camera.far = 30;
-    const d = 12;
+    this.keyLight.shadow.camera.far = 40; // Extended depth boundary
+    const d = 24; // Widened frustum to fully cover board, bowls, lids and captured stones
     this.keyLight.shadow.camera.left = -d;
     this.keyLight.shadow.camera.right = d;
     this.keyLight.shadow.camera.top = d;
     this.keyLight.shadow.camera.bottom = -d;
-    this.keyLight.shadow.bias = -0.0005;
+    // Set fine-tuned bias and normalBias to completely resolve diagonal shadow acne (self-shadowing) on flat surfaces
+    this.keyLight.shadow.bias = -0.0001;
+    this.keyLight.shadow.normalBias = 0.02;
+    this.keyLight.shadow.radius = 3; // Default blur radius for PCF soft shadows
     this.scene.add(this.keyLight);
 
     // Cool fill light
@@ -672,6 +675,47 @@ export class BoardRenderer {
 
     if (this.keyLight) {
       this.keyLight.castShadow = enabled;
+    }
+  }
+
+
+
+  setShadowResolution(res: number): void {
+    if (this.keyLight) {
+      this.keyLight.shadow.mapSize.width = res;
+      this.keyLight.shadow.mapSize.height = res;
+      // Force Three.js to reallocate the shadow render target with the new size
+      if (this.keyLight.shadow.map) {
+        this.keyLight.shadow.map.dispose();
+        this.keyLight.shadow.map = null;
+      }
+      this.setShadowsEnabled(this.renderer.shadowMap.enabled);
+    }
+  }
+
+  setShadowRadius(radius: number): void {
+    if (this.keyLight) {
+      this.keyLight.shadow.radius = radius;
+    }
+  }
+
+  setShadowOpacity(opacity: number): void {
+    if (this.floorMesh) {
+      const mat = this.floorMesh.material as THREE.ShadowMaterial;
+      mat.opacity = opacity;
+      mat.needsUpdate = true;
+    }
+  }
+
+  setShadowBias(bias: number): void {
+    if (this.keyLight) {
+      this.keyLight.shadow.bias = bias;
+    }
+  }
+
+  setShadowNormalBias(normalBias: number): void {
+    if (this.keyLight) {
+      this.keyLight.shadow.normalBias = normalBias;
     }
   }
 

@@ -249,8 +249,8 @@ class App {
                 <h3>Ambient Light</h3>
                 <div class="slider-row">
                   <label for="ambient-intensity">Intensity</label>
-                  <input type="range" id="ambient-intensity" min="0" max="2" step="0.05" value="0.4" />
-                  <span id="ambient-intensity-val">0.40</span>
+                  <input type="range" id="ambient-intensity" min="0" max="2" step="0.05" value="1.0" />
+                  <span id="ambient-intensity-val">1.00</span>
                 </div>
               </div>
 
@@ -258,8 +258,8 @@ class App {
                 <h3>Key Light (Warm)</h3>
                 <div class="slider-row">
                   <label for="key-intensity">Intensity</label>
-                  <input type="range" id="key-intensity" min="0" max="3" step="0.05" value="1.25" />
-                  <span id="key-intensity-val">1.25</span>
+                  <input type="range" id="key-intensity" min="0" max="3" step="0.05" value="2.0" />
+                  <span id="key-intensity-val">2.00</span>
                 </div>
                 <div class="slider-row">
                   <label for="key-color">Color</label>
@@ -289,6 +289,39 @@ class App {
                 <div class="checkbox-row">
                   <input type="checkbox" id="enable-shadows" checked />
                   <label for="enable-shadows">Enable 3D Shadows</label>
+                </div>
+              </div>
+
+              <div class="setting-group shadow-params" id="shadow-params-section">
+                <h3>Shadow Settings</h3>
+                <div class="slider-row">
+                  <label for="shadow-resolution">Resolution</label>
+                  <select id="shadow-resolution" style="flex: 2; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; padding: 4px; font-size: 11px;">
+                    <option value="256">256 (Ultra-Soft)</option>
+                    <option value="512">512 (Very Soft)</option>
+                    <option value="1024" selected>1024 (Medium)</option>
+                    <option value="2048">2048 (Crisp)</option>
+                  </select>
+                </div>
+                <div class="slider-row" style="margin-top: 8px;">
+                  <label for="shadow-radius">Blur (Radius)</label>
+                  <input type="range" id="shadow-radius" min="1" max="16" step="0.5" value="3" />
+                  <span id="shadow-radius-val">3.0</span>
+                </div>
+                <div class="slider-row" style="margin-top: 8px;">
+                  <label for="shadow-opacity">Floor Opacity</label>
+                  <input type="range" id="shadow-opacity" min="0" max="0.5" step="0.01" value="0.15" />
+                  <span id="shadow-opacity-val">0.15</span>
+                </div>
+                <div class="slider-row" style="margin-top: 8px;">
+                  <label for="shadow-bias">Bias</label>
+                  <input type="range" id="shadow-bias" min="-0.005" max="0.005" step="0.0001" value="-0.0001" />
+                  <span id="shadow-bias-val">-0.0001</span>
+                </div>
+                <div class="slider-row" style="margin-top: 8px;">
+                  <label for="shadow-normal-bias">Normal Bias</label>
+                  <input type="range" id="shadow-normal-bias" min="0" max="0.1" step="0.002" value="0.02" />
+                  <span id="shadow-normal-bias-val">0.02</span>
                 </div>
               </div>
 
@@ -690,20 +723,60 @@ class App {
     });
 
     const enableShadowsCheckbox = document.getElementById('enable-shadows') as HTMLInputElement;
+    const shadowParamsSection = document.getElementById('shadow-params-section')!;
     enableShadowsCheckbox.addEventListener('change', (e) => {
       const enabled = (e.target as HTMLInputElement).checked;
       this.renderer.setShadowsEnabled(enabled);
+      shadowParamsSection.style.display = enabled ? 'block' : 'none';
+    });
+
+    const shadowResSelect = document.getElementById('shadow-resolution') as HTMLSelectElement;
+    shadowResSelect.addEventListener('change', (e) => {
+      const res = parseInt((e.target as HTMLSelectElement).value, 10);
+      this.renderer.setShadowResolution(res);
+    });
+
+    const shadowRadiusSlider = document.getElementById('shadow-radius') as HTMLInputElement;
+    const shadowRadiusVal = document.getElementById('shadow-radius-val')!;
+    shadowRadiusSlider.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value);
+      shadowRadiusVal.textContent = val.toFixed(1);
+      this.renderer.setShadowRadius(val);
+    });
+
+    const shadowOpacitySlider = document.getElementById('shadow-opacity') as HTMLInputElement;
+    const shadowOpacityVal = document.getElementById('shadow-opacity-val')!;
+    shadowOpacitySlider.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value);
+      shadowOpacityVal.textContent = val.toFixed(2);
+      this.renderer.setShadowOpacity(val);
+    });
+
+    const shadowBiasSlider = document.getElementById('shadow-bias') as HTMLInputElement;
+    const shadowBiasVal = document.getElementById('shadow-bias-val')!;
+    shadowBiasSlider.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value);
+      shadowBiasVal.textContent = val.toFixed(4);
+      this.renderer.setShadowBias(val);
+    });
+
+    const shadowNormalBiasSlider = document.getElementById('shadow-normal-bias') as HTMLInputElement;
+    const shadowNormalBiasVal = document.getElementById('shadow-normal-bias-val')!;
+    shadowNormalBiasSlider.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value);
+      shadowNormalBiasVal.textContent = val.toFixed(3);
+      this.renderer.setShadowNormalBias(val);
     });
 
     const resetBtn = document.getElementById('reset-lights-btn') as HTMLButtonElement;
     resetBtn.addEventListener('click', () => {
-      ambientSlider.value = '0.4';
-      ambientVal.textContent = '0.40';
-      this.renderer.setAmbientLightIntensity(0.4);
+      ambientSlider.value = '1.0';
+      ambientVal.textContent = '1.00';
+      this.renderer.setAmbientLightIntensity(1.0);
 
-      keySlider.value = '1.25';
-      keyVal.textContent = '1.25';
-      this.renderer.setKeyLightIntensity(1.25);
+      keySlider.value = '2.0';
+      keyVal.textContent = '2.00';
+      this.renderer.setKeyLightIntensity(2.0);
 
       keyColorPicker.value = '#fff7e6';
       this.renderer.setKeyLightColor('#fff7e6');
@@ -718,6 +791,26 @@ class App {
 
       enableShadowsCheckbox.checked = true;
       this.renderer.setShadowsEnabled(true);
+      shadowParamsSection.style.display = 'block';
+
+      shadowResSelect.value = '1024';
+      this.renderer.setShadowResolution(1024);
+
+      shadowRadiusSlider.value = '3';
+      shadowRadiusVal.textContent = '3.0';
+      this.renderer.setShadowRadius(3);
+
+      shadowOpacitySlider.value = '0.15';
+      shadowOpacityVal.textContent = '0.15';
+      this.renderer.setShadowOpacity(0.15);
+
+      shadowBiasSlider.value = '-0.0001';
+      shadowBiasVal.textContent = '-0.0001';
+      this.renderer.setShadowBias(-0.0001);
+
+      shadowNormalBiasSlider.value = '0.02';
+      shadowNormalBiasVal.textContent = '0.020';
+      this.renderer.setShadowNormalBias(0.02);
     });
   }
 
