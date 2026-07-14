@@ -100,6 +100,7 @@ export class BoardRenderer {
   private interactionResolutionTimer: number | null = null;
   private dragStart: { pointerId: number; x: number; y: number } | null = null;
   private pointerDragged = false;
+  private moveInputEnabled = true;
 
   private readonly starPoints19 = [
     [3, 3], [9, 3], [15, 3],
@@ -833,7 +834,7 @@ export class BoardRenderer {
         return;
       }
       this.dragStart = null;
-      if (this.game.isReplayMode) return;
+      if (this.game.isReplayMode || !this.moveInputEnabled) return;
 
       const pos = this.getRaycastPosition(e, raycaster, mouse);
       if (pos) {
@@ -1167,6 +1168,11 @@ export class BoardRenderer {
   }
 
   onMove?: () => void;
+
+  setMoveInputEnabled(enabled: boolean): void {
+    this.moveInputEnabled = enabled;
+    this.canvas.classList.toggle('input-disabled', !enabled);
+  }
 
   setAnalysis(analysis: AnalysisResponse | null): void {
     this.analysis = analysis;

@@ -34,6 +34,8 @@ class App {
   private replayAnalysisTimer: number | null = null;
   private replayAnalysisRequest = 0;
   private replayAnalysisCache = new Map<number, AnalysisResponse>();
+  private aiRequest = 0;
+  private aiThinking = false;
 
   constructor() {
     this.game = new GoGame(19);
@@ -58,6 +60,7 @@ class App {
         this.hideReplayControls();
       }
       this.scheduleLiveWinrateAnalysis();
+      this.scheduleAiMove();
     };
     this.renderer.render();
     this.setupBoardSizeButtons();
@@ -67,6 +70,7 @@ class App {
     this.setupTabs();
     this.setupRulesToggle();
     this.setupSceneSettings();
+    this.updateAiControls();
   }
 
   private async checkServer(): Promise<void> {
@@ -85,6 +89,9 @@ class App {
       this.serverStatus.className = 'status-badge offline';
       this.analyzeBtn.disabled = true;
     }
+    const aiToggle = document.getElementById('play-against-ai') as HTMLInputElement | null;
+    if (aiToggle) aiToggle.disabled = !this.serverOnline;
+    this.updateAiControls();
   }
 
   private createUI(): void {
@@ -195,6 +202,30 @@ class App {
               <button class="btn-undo" id="undo-btn" disabled>Undo</button>
               <button class="btn-pass" id="pass-btn">Pass</button>
               <button class="btn-reset" id="reset-btn">Reset</button>
+            </div>
+
+            <div class="ai-settings" id="ai-settings">
+              <label class="toggle-setting">
+                <span>Play against AI</span>
+                <input type="checkbox" id="play-against-ai" />
+                <div class="toggle-switch"></div>
+              </label>
+              <label class="select-setting">
+                <span>AI color</span>
+                <select id="ai-color">
+                  <option value="white" selected>White</option>
+                  <option value="black">Black</option>
+                </select>
+              </label>
+              <label class="select-setting">
+                <span>AI strength</span>
+                <select id="ai-strength">
+                  <option value="casual">Casual</option>
+                  <option value="strong" selected>Strong</option>
+                  <option value="maximum">Maximum</option>
+                </select>
+              </label>
+              <div class="ai-status" id="ai-status">AI off</div>
             </div>
 
             <div class="settings">
@@ -430,19 +461,45 @@ class App {
       this.updateUI();
       this.hideAnalysis();
       this.scheduleLiveWinrateAnalysis();
+      this.scheduleAiMove();
     });
 
     document.getElementById('undo-btn')!.addEventListener('click', () => {
       this.undoLastMove();
     });
 
+    document.getElementById('play-against-ai')!.addEventListener('change', () => {
+      this.aiRequest++;
+      this.aiThinking = false;
+      this.updateAiControls();
+      this.scheduleAiMove();
+    });
+
+    document.getElementById('ai-color')!.addEventListener('change', () => {
+      this.aiRequest++;
+      this.aiThinking = false;
+      this.updateAiControls();
+      this.scheduleAiMove();
+    });
+
+    document.getElementById('ai-strength')!.addEventListener('change', () => {
+      this.aiRequest++;
+      this.aiThinking = false;
+      this.updateAiControls();
+      this.scheduleAiMove();
+    });
+
     document.getElementById('reset-btn')!.addEventListener('click', () => {
+      this.aiRequest++;
+      this.aiThinking = false;
       this.game.reset();
       this.renderer.clearAnalysis();
       this.renderer.render();
       this.updateUI();
       this.hideAnalysis();
       this.resetWinrateHistory();
+      this.updateAiControls();
+      this.scheduleAiMove();
     });
 
     document.getElementById('last-move-marker')!.addEventListener('change', (e) => {
@@ -593,6 +650,7 @@ class App {
     document.getElementById('replay-controls')!.style.display = 'block';
     document.getElementById('turn-indicator')!.style.display = 'none';
     document.querySelector('.buttons')!.setAttribute('style', 'display: none');
+    document.getElementById('ai-settings')!.style.display = 'none';
 
     const slider = document.getElementById('move-slider') as HTMLInputElement;
     slider.max = this.game.getTotalMoves().toString();
@@ -607,6 +665,7 @@ class App {
     document.getElementById('game-info')!.style.display = 'none';
     document.getElementById('turn-indicator')!.style.display = 'flex';
     document.querySelector('.buttons')!.removeAttribute('style');
+    document.getElementById('ai-settings')!.style.display = 'flex';
     document.getElementById('winrate-play-from-here')!.style.display = 'none';
   }
 
@@ -709,10 +768,22 @@ class App {
     this.renderer.render();
     this.updateUI();
     this.scheduleLiveWinrateAnalysis();
+    this.scheduleAiMove();
   }
 
   private undoLastMove(): void {
-    if (!this.game.undoLastMove()) return;
+    this.aiRequest++;
+    this.aiThinking = false;
+    if (!this.game.undoLastMove()) {
+      this.updateAiControls();
+      return;
+    }
+
+    // If the last completed turn ended with an AI response, also take back
+    // the human move so the user can choose a different continuation.
+    while (this.isAiEnabled() && this.game.currentPlayer === this.getAiColor() && this.game.canUndo()) {
+      this.game.undoLastMove();
+    }
 
     const moveNumber = this.game.moveHistory.length;
     this.pruneAnalysisAfter(moveNumber);
@@ -722,6 +793,115 @@ class App {
     this.renderer.render();
     this.updateUI();
     this.scheduleLiveWinrateAnalysis();
+    this.scheduleAiMove();
+  }
+
+  private isAiEnabled(): boolean {
+    return this.serverOnline
+      && (document.getElementById('play-against-ai') as HTMLInputElement).checked;
+  }
+
+  private getAiColor(): 'black' | 'white' {
+    return (document.getElementById('ai-color') as HTMLSelectElement).value as 'black' | 'white';
+  }
+
+  private isAiTurn(): boolean {
+    return this.isAiEnabled()
+      && !this.game.isReplayMode
+      && this.game.currentPlayer === this.getAiColor();
+  }
+
+  private updateAiControls(): void {
+    const aiToggle = document.getElementById('play-against-ai') as HTMLInputElement | null;
+    if (!aiToggle || !this.renderer) return;
+
+    const enabled = this.isAiEnabled();
+    const aiTurn = this.isAiTurn();
+    const colorSelect = document.getElementById('ai-color') as HTMLSelectElement;
+    const strengthSelect = document.getElementById('ai-strength') as HTMLSelectElement;
+    const status = document.getElementById('ai-status')!;
+    const passButton = document.getElementById('pass-btn') as HTMLButtonElement;
+
+    colorSelect.disabled = !enabled || this.aiThinking;
+    strengthSelect.disabled = !enabled || this.aiThinking;
+    passButton.disabled = aiTurn || this.aiThinking || this.game.isReplayMode;
+    this.renderer.setMoveInputEnabled(!aiTurn && !this.aiThinking && !this.game.isReplayMode);
+
+    if (!enabled) {
+      status.textContent = this.serverOnline ? 'AI off' : 'KataGo offline';
+    } else if (this.aiThinking) {
+      status.textContent = `${this.getAiColor() === 'black' ? 'Black' : 'White'} AI thinking…`;
+    } else {
+      status.textContent = `AI plays ${this.getAiColor()}`;
+    }
+  }
+
+  private scheduleAiMove(): void {
+    const request = ++this.aiRequest;
+    this.updateAiControls();
+    if (!this.isAiTurn() || this.aiThinking) return;
+
+    this.aiThinking = true;
+    this.updateAiControls();
+    void this.makeAiMove(request);
+  }
+
+  private async makeAiMove(request: number): Promise<void> {
+    const moves = this.game.getKataGoMoves();
+    const moveNumber = moves.length;
+    const strength = (document.getElementById('ai-strength') as HTMLSelectElement).value;
+    const settings = strength === 'maximum'
+      ? { visits: 600, candidates: 1 }
+      : strength === 'casual'
+        ? { visits: 30, candidates: 3 }
+        : { visits: 200, candidates: 1 };
+
+    let failed = false;
+    try {
+      const result = await this.requestPositionAnalysis(moves, settings.visits, false);
+      const stillCurrent = request === this.aiRequest
+        && this.isAiTurn()
+        && moveNumber === this.game.moveHistory.length;
+      if (!stillCurrent) return;
+
+      // The AI search already evaluated the position after the human move, so
+      // retain that stronger result even if the separate live request is
+      // invalidated when the AI responds quickly.
+      this.winrateChart.upsert({
+        moveNumber,
+        winrate: result.winrate,
+        scoreLead: result.scoreLead,
+        visits: result.visits,
+      });
+
+      const candidates = result.topMoves.slice(0, settings.candidates);
+      const selected = settings.candidates === 1
+        ? candidates[0]
+        : candidates[Math.min(candidates.length - 1, Math.floor(Math.random() * candidates.length))];
+      if (!selected) throw new Error('KataGo returned no legal move');
+
+      const position = this.game.gtpToPos(selected.move);
+      const moved = position
+        ? this.game.placeStone(position.x, position.y)
+        : selected.move.toLowerCase() === 'pass' && (this.game.pass(), true);
+      if (!moved) throw new Error(`KataGo returned an invalid move: ${selected.move}`);
+
+      this.preserveLiveChartMove = null;
+      this.renderer.clearAnalysis();
+      this.hideAnalysis();
+      this.renderer.render();
+      this.updateUI();
+      this.scheduleLiveWinrateAnalysis();
+    } catch (error) {
+      failed = true;
+      console.error('AI move failed:', error);
+    } finally {
+      if (request === this.aiRequest) {
+        this.aiThinking = false;
+        this.updateAiControls();
+        if (failed) document.getElementById('ai-status')!.textContent = 'AI move failed';
+      }
+    }
   }
 
   private async analyze(): Promise<void> {
@@ -1147,12 +1327,15 @@ class App {
   }
 
   private changeBoardSize(size: number): void {
+    this.aiRequest++;
+    this.aiThinking = false;
     this.game = new GoGame(size);
     this.resetWinrateHistory();
     this.renderer.updateGame(this.game);
     this.renderer.render();
     this.updateUI();
     this.hideAnalysis();
+    this.scheduleAiMove();
   }
 
   private updateUI(): void {
@@ -1168,6 +1351,7 @@ class App {
     }
     const undoBtn = document.getElementById('undo-btn') as HTMLButtonElement | null;
     if (undoBtn) undoBtn.disabled = !this.game.canUndo();
+    this.updateAiControls();
   }
 
   private setupTabs(): void {
