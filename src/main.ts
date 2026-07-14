@@ -101,17 +101,18 @@ class App {
         <header class="app-header">
           <div class="app-brand">
             <span class="brand-mark">碁</span>
-            <span>KataGo</span>
           </div>
-          <div class="tabs-header">
-            <button class="tab-btn active" data-tab="game">Game</button>
-            <button class="tab-btn" data-tab="analysis">Analysis</button>
-            <button class="tab-btn" data-tab="scene">Scene</button>
-          </div>
+          <nav class="app-menu" aria-label="Application menu">
+            <div class="menu-group">
+              <button class="menu-trigger" type="button" aria-expanded="false">Game</button>
+              <div class="menu-panel" id="game-menu" role="menu"></div>
+            </div>
+            <div class="header-game-actions" id="header-game-actions"></div>
+          </nav>
           <div class="header-actions" aria-label="Application shortcuts">
             <button class="icon-button" id="header-load-btn" title="Load SGF" aria-label="Load SGF">⌑</button>
-            <button class="icon-button" data-tab-target="scene" title="Scene settings" aria-label="Scene settings">⚙</button>
-            <button class="icon-button" id="theme-button" title="Display theme" aria-label="Display theme">☼</button>
+            <button class="icon-button" id="header-scene-btn" title="Scene settings" aria-label="Scene settings">⚙</button>
+            <button class="icon-button" id="theme-button" title="Reset lighting" aria-label="Reset lighting">☼</button>
           </div>
         </header>
         <div class="board-section">
@@ -129,19 +130,6 @@ class App {
         ></div>
         <div class="sidebar" id="sidebar">
           <div class="tab-content active" id="tab-game">
-            <div class="panel-title">Game Mode</div>
-            <div class="mode-selector">
-              <button class="mode-button active" id="mode-ai"><span></span>Play vs AI</button>
-              <button class="mode-button" id="mode-human"><span></span>Play vs Human</button>
-            </div>
-
-            <div class="panel-title">Board Size</div>
-            <div class="board-size-selector">
-              <button data-size="9">9x9</button>
-              <button data-size="13">13x13</button>
-              <button data-size="19" class="active">19x19</button>
-            </div>
-
             <div class="game-info" id="game-info" style="display: none;">
               <div class="player-info">
                 <div class="player black-player">
@@ -274,7 +262,7 @@ class App {
           </div>
 
           <div class="tab-content" id="tab-analysis">
-            <div class="panel-title">Analysis Overview</div>
+            <div class="panel-title">Game Analysis</div>
             <div class="analysis-controls">
               <button class="btn-pass" id="analyze-btn">Analyze Position</button>
               <div class="server-status">
@@ -461,7 +449,14 @@ class App {
           </div>
         </div>
         <footer class="action-dock">
-          <div class="dock-section dock-files" id="dock-files"></div>
+          <button
+            class="timeline-collapse-toggle"
+            id="timeline-collapse-toggle"
+            type="button"
+            aria-label="Collapse game timeline"
+            aria-expanded="true"
+            title="Collapse game timeline"
+          >⌄</button>
           <div class="move-strip">
             <button class="strip-arrow" id="dock-prev" title="Previous move">‹</button>
             <div class="move-timeline" id="move-timeline" aria-label="Move timeline"></div>
@@ -475,16 +470,211 @@ class App {
       </div>
     `;
 
-    document.getElementById('dock-files')!.appendChild(document.querySelector('.load-section')!);
     document.getElementById('quick-action-grid')!.appendChild(document.querySelector('.review-section')!);
-    document.querySelector('.mode-selector')!.insertAdjacentElement(
+    document.querySelector('.analysis-controls')!.insertAdjacentElement(
       'afterend',
-      document.getElementById('replay-controls')!
+      document.querySelector('.captures')!
+    );
+    document.querySelector('.analysis-controls')!.insertAdjacentElement(
+      'beforebegin',
+      document.getElementById('turn-indicator')!
     );
     document.getElementById('quick-action-grid')!.insertAdjacentHTML('beforeend', `
       <button class="quick-action" id="new-game-btn">＋ <span>New Game</span></button>
       <button class="quick-action" id="export-board-btn">▣ <span>Export Board Image</span></button>
     `);
+    const gameMenu = document.getElementById('game-menu')!;
+    const gameControls = document.createElement('div');
+    gameControls.className = 'game-menu-controls';
+    gameControls.appendChild(document.getElementById('replay-controls')!);
+    gameControls.appendChild(document.getElementById('game-info')!);
+    document.getElementById('header-game-actions')!.appendChild(document.querySelector('.buttons')!);
+
+    const aiToggleInput = document.getElementById('play-against-ai') as HTMLInputElement;
+    const aiToggleRow = aiToggleInput.closest('.toggle-setting')!;
+    aiToggleRow.insertAdjacentElement('beforebegin', aiToggleInput);
+    aiToggleRow.remove();
+    const aiSettings = document.getElementById('ai-settings')!;
+    const markerSettings = document.querySelector('#tab-game > .settings')!;
+    aiSettings.classList.add('game-setting-sources');
+    markerSettings.classList.add('game-setting-sources');
+    gameControls.appendChild(aiSettings);
+    gameControls.appendChild(markerSettings);
+    gameMenu.appendChild(gameControls);
+
+    const createSecondaryMenu = (
+      label: string,
+      getValue: () => string,
+      options: Array<{ label: string; value: string }>,
+      onSelect: (value: string) => void
+    ): HTMLElement => {
+      const secondaryMenu = document.createElement('div');
+      secondaryMenu.className = 'secondary-menu';
+      secondaryMenu.innerHTML = `
+        <button class="secondary-trigger" type="button" aria-expanded="false">
+          <span>${label}</span><span class="secondary-value"></span><i></i>
+        </button>
+        <div class="secondary-panel" role="menu">
+          ${options.map(option => `
+            <button class="secondary-option" type="button" data-value="${option.value}" role="menuitemradio">
+              ${option.label}
+            </button>
+          `).join('')}
+        </div>
+      `;
+
+      const trigger = secondaryMenu.querySelector<HTMLButtonElement>('.secondary-trigger')!;
+      const valueLabel = secondaryMenu.querySelector<HTMLElement>('.secondary-value')!;
+      const sync = (): void => {
+        const value = getValue();
+        const selected = options.find(option => option.value === value);
+        valueLabel.textContent = selected?.label ?? '';
+        secondaryMenu.querySelectorAll<HTMLButtonElement>('.secondary-option').forEach(option => {
+          const active = option.dataset.value === value;
+          option.classList.toggle('active', active);
+          option.setAttribute('aria-checked', String(active));
+        });
+      };
+
+      trigger.addEventListener('click', () => {
+        const opening = !secondaryMenu.classList.contains('open');
+        gameMenu.querySelectorAll('.secondary-menu.open').forEach(menu => {
+          menu.classList.remove('open');
+          menu.querySelector('.secondary-trigger')?.setAttribute('aria-expanded', 'false');
+        });
+        secondaryMenu.classList.toggle('open', opening);
+        trigger.setAttribute('aria-expanded', String(opening));
+      });
+      secondaryMenu.querySelectorAll<HTMLButtonElement>('.secondary-option').forEach(option => {
+        option.addEventListener('click', () => {
+          onSelect(option.dataset.value!);
+          sync();
+        });
+      });
+      sync();
+      return secondaryMenu;
+    };
+
+    const aiColorSelect = document.getElementById('ai-color') as HTMLSelectElement;
+    const aiStrengthSelect = document.getElementById('ai-strength') as HTMLSelectElement;
+    const markerSelect = document.getElementById('last-move-marker') as HTMLSelectElement;
+    gameMenu.appendChild(createSecondaryMenu(
+      'New Game',
+      () => aiToggleInput.checked ? 'ai' : 'human',
+      [
+        { label: 'Play as AI', value: 'ai' },
+        { label: 'Play as Human', value: 'human' },
+      ],
+      value => {
+        aiToggleInput.checked = value === 'ai';
+        aiToggleInput.dispatchEvent(new Event('change'));
+        (document.getElementById('reset-btn') as HTMLButtonElement).click();
+      }
+    ));
+    gameMenu.appendChild(createSecondaryMenu(
+      'AI Color',
+      () => aiColorSelect.value,
+      [
+        { label: 'White', value: 'white' },
+        { label: 'Black', value: 'black' },
+      ],
+      value => {
+        aiColorSelect.value = value;
+        aiColorSelect.dispatchEvent(new Event('change'));
+      }
+    ));
+    gameMenu.appendChild(createSecondaryMenu(
+      'AI Strength',
+      () => aiStrengthSelect.value,
+      [
+        { label: 'Casual', value: 'casual' },
+        { label: 'Strong', value: 'strong' },
+        { label: 'Maximum', value: 'maximum' },
+      ],
+      value => {
+        aiStrengthSelect.value = value;
+        aiStrengthSelect.dispatchEvent(new Event('change'));
+      }
+    ));
+    gameMenu.appendChild(createSecondaryMenu(
+      'Last Move Marker',
+      () => markerSelect.value,
+      [
+        { label: 'None', value: 'none' },
+        { label: 'Circle', value: 'circle' },
+        { label: 'Triangle', value: 'triangle' },
+        { label: 'Move Number', value: 'number' },
+      ],
+      value => {
+        markerSelect.value = value;
+        markerSelect.dispatchEvent(new Event('change'));
+      }
+    ));
+    gameMenu.appendChild(document.getElementById('review-btn')!);
+    const fileActionsSeparator = document.createElement('div');
+    fileActionsSeparator.className = 'menu-separator';
+    fileActionsSeparator.setAttribute('role', 'separator');
+    gameMenu.appendChild(fileActionsSeparator);
+    gameMenu.appendChild(document.querySelector('.btn-load')!);
+    gameMenu.appendChild(document.getElementById('save-sgf-btn')!);
+    gameMenu.appendChild(document.getElementById('export-board-btn')!);
+    document.getElementById('new-game-btn')!.remove();
+    document.querySelector('.load-section')!.remove();
+    document.querySelector('.dock-actions')!.remove();
+    document.getElementById('tab-game')!.remove();
+
+    const closeMenus = (): void => {
+      document.querySelectorAll('.menu-group.open').forEach(group => {
+        group.classList.remove('open');
+        group.querySelector('.menu-trigger')?.setAttribute('aria-expanded', 'false');
+      });
+      document.querySelectorAll('.secondary-menu.open').forEach(menu => {
+        menu.classList.remove('open');
+        menu.querySelector('.secondary-trigger')?.setAttribute('aria-expanded', 'false');
+      });
+    };
+    document.querySelectorAll<HTMLButtonElement>('.menu-trigger').forEach(trigger => {
+      trigger.addEventListener('click', event => {
+        event.stopPropagation();
+        const group = trigger.parentElement!;
+        const opening = !group.classList.contains('open');
+        closeMenus();
+        group.classList.toggle('open', opening);
+        trigger.setAttribute('aria-expanded', String(opening));
+      });
+    });
+    document.querySelectorAll('.menu-panel').forEach(panel => {
+      panel.addEventListener('click', event => {
+        event.stopPropagation();
+        const target = event.target as HTMLElement;
+        if (target.closest('.btn-load, .btn-save-sgf, .btn-review, .secondary-option, #export-board-btn')) {
+          closeMenus();
+        }
+      });
+    });
+    document.addEventListener('click', closeMenus);
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') closeMenus();
+    });
+
+    const container = document.querySelector('.game-container')!;
+    const timelineToggle = document.getElementById('timeline-collapse-toggle') as HTMLButtonElement;
+    const setTimelineCollapsed = (collapsed: boolean): void => {
+      container.classList.toggle('timeline-collapsed', collapsed);
+      timelineToggle.textContent = collapsed ? '⌃' : '⌄';
+      timelineToggle.setAttribute('aria-expanded', String(!collapsed));
+      timelineToggle.setAttribute(
+        'aria-label',
+        collapsed ? 'Expand game timeline' : 'Collapse game timeline'
+      );
+      timelineToggle.title = collapsed ? 'Expand game timeline' : 'Collapse game timeline';
+      localStorage.setItem('katago-timeline-collapsed', String(collapsed));
+      window.setTimeout(() => this.renderer?.resizeToContainer(), 220);
+    };
+    setTimelineCollapsed(localStorage.getItem('katago-timeline-collapsed') === 'true');
+    timelineToggle.addEventListener('click', () => {
+      setTimelineCollapsed(!container.classList.contains('timeline-collapsed'));
+    });
 
     this.turnIndicator = document.querySelector('.turn-indicator span')!;
     this.stoneIcon = document.querySelector('.turn-indicator .stone-icon')!;
@@ -586,31 +776,14 @@ class App {
 
     this.analyzeBtn.addEventListener('click', () => this.analyze());
 
-    const aiToggle = document.getElementById('play-against-ai') as HTMLInputElement;
-    const modeAi = document.getElementById('mode-ai')!;
-    const modeHuman = document.getElementById('mode-human')!;
-    const setMode = (againstAi: boolean): void => {
-      aiToggle.checked = againstAi;
-      modeAi.classList.toggle('active', againstAi);
-      modeHuman.classList.toggle('active', !againstAi);
-      aiToggle.dispatchEvent(new Event('change'));
-    };
-    modeAi.addEventListener('click', () => setMode(true));
-    modeHuman.addEventListener('click', () => setMode(false));
-    aiToggle.addEventListener('change', () => {
-      modeAi.classList.toggle('active', aiToggle.checked);
-      modeHuman.classList.toggle('active', !aiToggle.checked);
-    });
-
     document.getElementById('header-load-btn')!.addEventListener('click', () => {
       document.getElementById('sgf-input')!.click();
     });
-    document.querySelector('[data-tab-target="scene"]')!.addEventListener('click', () => this.switchTab('scene'));
+    document.getElementById('header-scene-btn')!.addEventListener('click', () => {
+      document.getElementById('tab-scene')!.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
     document.getElementById('theme-button')!.addEventListener('click', () => {
       (document.getElementById('reset-lights-btn') as HTMLButtonElement).click();
-    });
-    document.getElementById('new-game-btn')!.addEventListener('click', () => {
-      (document.getElementById('reset-btn') as HTMLButtonElement).click();
     });
     document.getElementById('dock-prev')!.addEventListener('click', () => {
       if (this.game.isReplayMode) {
