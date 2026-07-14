@@ -89,6 +89,7 @@ export class BoardRenderer {
   private mousemoveListener!: (e: MouseEvent) => void;
   private mouseleaveListener!: () => void;
   private resizeListener!: () => void;
+  private resizeObserver: ResizeObserver | null = null;
 
   private animationFrameId: number | null = null;
   private lastPhysicsStepTime = performance.now();
@@ -872,6 +873,16 @@ export class BoardRenderer {
     this.canvas.addEventListener('mousemove', this.mousemoveListener);
     this.canvas.addEventListener('mouseleave', this.mouseleaveListener);
     window.addEventListener('resize', this.resizeListener);
+
+    const container = this.canvas.parentElement;
+    if (container && typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => {
+        if (container.clientWidth > 0 && container.clientHeight > 0) {
+          this.resizeToContainer();
+        }
+      });
+      this.resizeObserver.observe(container);
+    }
   }
 
   private getRaycastPosition(e: MouseEvent, raycaster: THREE.Raycaster, mouse: THREE.Vector2): Position | null {
@@ -1658,6 +1669,8 @@ export class BoardRenderer {
     this.canvas.removeEventListener('mousemove', this.mousemoveListener);
     this.canvas.removeEventListener('mouseleave', this.mouseleaveListener);
     window.removeEventListener('resize', this.resizeListener);
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
 
     if (this.animationFrameId) {
       cancelAnimationFrame(this.animationFrameId);

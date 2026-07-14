@@ -131,11 +131,42 @@ class App {
           role="separator"
           aria-label="Resize game board and controls"
           aria-orientation="vertical"
-          aria-valuemin="280"
-          aria-valuenow="340"
+          aria-valuemin="300"
+          aria-valuenow="370"
           tabindex="0"
         ></div>
         <div class="sidebar" id="sidebar">
+          <nav class="inspector-tabs" aria-label="Inspector panels">
+            <button
+              class="inspector-tab active"
+              type="button"
+              data-tab="analysis"
+              aria-label="Show game analysis"
+              aria-pressed="true"
+              title="Game Analysis"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 19V5M4 19h16M7 15l4-4 3 2 5-7" />
+                <circle cx="7" cy="15" r="1" />
+                <circle cx="11" cy="11" r="1" />
+                <circle cx="14" cy="13" r="1" />
+                <circle cx="19" cy="6" r="1" />
+              </svg>
+            </button>
+            <button
+              class="inspector-tab"
+              type="button"
+              data-tab="scene"
+              aria-label="Show lighting controls"
+              aria-pressed="false"
+              title="Lighting"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="3.5" />
+                <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1" />
+              </svg>
+            </button>
+          </nav>
           <div class="tab-content active" id="tab-game">
             <div class="game-info" id="game-info" style="display: none;">
               <div class="player-info">
@@ -268,7 +299,7 @@ class App {
             </div>
           </div>
 
-          <div class="tab-content" id="tab-analysis">
+          <div class="tab-content active" id="tab-analysis">
             <div class="panel-title">Game Analysis</div>
             <div class="analysis-controls">
               <button class="btn-pass" id="analyze-btn">Start Analyze</button>
@@ -1654,18 +1685,18 @@ class App {
     const container = document.querySelector('.game-container') as HTMLElement;
     const sidebar = document.getElementById('sidebar')!;
     const splitter = document.getElementById('panel-splitter')!;
-    const minSidebarWidth = 280;
+    const minSidebarWidth = 300;
     const maxSidebarWidth = 620;
-    const minBoardWidth = 360;
-    const mobileBreakpoint = 800;
-    const storageKey = 'go-game-sidebar-width';
+    const minBoardWidth = 540;
+    const desktopBreakpoint = 1280;
+    const storageKey = 'go-game-inspector-width';
     let isDragging = false;
     let queuedWidth: number | null = null;
     let resizeFrame: number | null = null;
 
     const getMaximumWidth = (): number => Math.max(
       minSidebarWidth,
-      Math.min(maxSidebarWidth, container.clientWidth - minBoardWidth - splitter.offsetWidth)
+      Math.min(maxSidebarWidth, container.clientWidth - minBoardWidth - splitter.offsetWidth - 24)
     );
 
     const storeWidth = (width: number): void => {
@@ -1677,11 +1708,11 @@ class App {
     };
 
     const applyWidth = (width: number, persist = false): number => {
-      if (window.innerWidth <= mobileBreakpoint) return sidebar.offsetWidth;
+      if (window.innerWidth < desktopBreakpoint) return sidebar.offsetWidth;
 
       const maximumWidth = getMaximumWidth();
       const clampedWidth = Math.max(minSidebarWidth, Math.min(width, maximumWidth));
-      sidebar.style.width = `${clampedWidth}px`;
+      container.style.setProperty('--inspector-width', `${clampedWidth}px`);
       splitter.setAttribute('aria-valuenow', String(Math.round(clampedWidth)));
       splitter.setAttribute('aria-valuemax', String(Math.round(maximumWidth)));
       this.renderer.resizeToContainer();
@@ -1702,7 +1733,7 @@ class App {
     };
 
     splitter.addEventListener('pointerdown', (event: PointerEvent) => {
-      if (event.button !== 0 || window.innerWidth <= mobileBreakpoint) return;
+      if (event.button !== 0 || window.innerWidth < desktopBreakpoint) return;
       isDragging = true;
       splitter.setPointerCapture(event.pointerId);
       container.classList.add('is-resizing');
@@ -1711,7 +1742,7 @@ class App {
 
     splitter.addEventListener('pointermove', (event: PointerEvent) => {
       if (!isDragging) return;
-      queueWidth(container.getBoundingClientRect().right - event.clientX);
+      queueWidth(container.getBoundingClientRect().right - event.clientX - 12);
     });
 
     const stopDragging = (event: PointerEvent): void => {
@@ -1750,14 +1781,14 @@ class App {
     });
 
     window.addEventListener('resize', () => {
-      if (window.innerWidth <= mobileBreakpoint) {
-        sidebar.style.removeProperty('width');
+      if (window.innerWidth < desktopBreakpoint) {
+        container.style.removeProperty('--inspector-width');
         return;
       }
       applyWidth(sidebar.getBoundingClientRect().width);
     });
 
-    let initialWidth = 340;
+    let initialWidth = 370;
     try {
       const storedWidth = Number(localStorage.getItem(storageKey));
       if (Number.isFinite(storedWidth) && storedWidth > 0) initialWidth = storedWidth;
@@ -1797,27 +1828,29 @@ class App {
   }
 
   private setupTabs(): void {
-    const tabButtons = document.querySelectorAll('.tab-btn');
+    const tabButtons = document.querySelectorAll<HTMLButtonElement>('.inspector-tab');
     tabButtons.forEach((btn) => {
       btn.addEventListener('click', () => {
-        const tab = (btn as HTMLElement).dataset.tab as 'game' | 'analysis' | 'scene';
+        const tab = btn.dataset.tab as 'analysis' | 'scene';
         this.switchTab(tab);
       });
     });
+
+    const savedTab = localStorage.getItem('go-game-inspector-tab');
+    this.switchTab(savedTab === 'scene' ? 'scene' : 'analysis');
   }
 
-  private switchTab(tab: 'game' | 'analysis' | 'scene'): void {
-    // Update button states
-    const tabButtons = document.querySelectorAll('.tab-btn');
+  private switchTab(tab: 'analysis' | 'scene'): void {
+    const tabButtons = document.querySelectorAll<HTMLButtonElement>('.inspector-tab');
     tabButtons.forEach((btn) => {
-      const isCurrent = (btn as HTMLElement).dataset.tab === tab;
+      const isCurrent = btn.dataset.tab === tab;
       btn.classList.toggle('active', isCurrent);
+      btn.setAttribute('aria-pressed', String(isCurrent));
     });
 
-    // Update content states
-    document.getElementById('tab-game')!.classList.toggle('active', tab === 'game');
     document.getElementById('tab-analysis')!.classList.toggle('active', tab === 'analysis');
     document.getElementById('tab-scene')!.classList.toggle('active', tab === 'scene');
+    localStorage.setItem('go-game-inspector-tab', tab);
   }
 
   private setupSceneSettings(): void {
