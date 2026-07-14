@@ -37,19 +37,59 @@ h1 {
 .board-section {
   flex: 1;
   height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  box-sizing: border-box;
-  overflow: auto;
+  position: relative;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  background: #1c1c1c;
+}
+
+.panel-splitter {
+  position: relative;
+  width: 8px;
+  height: 100%;
+  flex: 0 0 8px;
+  background: #242424;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+  z-index: 3;
+}
+
+.panel-splitter::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: #4a4a4a;
+  transition: width 0.15s, left 0.15s, background 0.15s;
+}
+
+.panel-splitter:hover::after,
+.panel-splitter:focus-visible::after,
+.game-container.is-resizing .panel-splitter::after {
+  left: 2px;
+  width: 4px;
+  background: #3498db;
+}
+
+.game-container.is-resizing,
+.game-container.is-resizing * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+.game-container.is-resizing .sidebar {
+  transition: none;
 }
 
 #board {
+  width: 100%;
+  height: 100%;
+  display: block;
   cursor: pointer;
-  border-radius: 4px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 /* Sidebar Panel - Compact Version */
@@ -59,7 +99,7 @@ h1 {
   width: 340px;
   height: 100%;
   color: #fff;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-sizing: border-box;
   overflow-y: auto;
   flex-shrink: 0;
@@ -355,6 +395,168 @@ button:active {
   gap: 6px;
 }
 
+.winrate-chart-section {
+  background: #252525;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.winrate-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  color: #ccc;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+#winrate-chart-status {
+  color: #777;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.winrate-chart {
+  width: 100%;
+  min-height: 180px;
+  position: relative;
+}
+
+.winrate-series-controls {
+  display: flex;
+  gap: 14px;
+  margin: 6px 0 2px 36px;
+}
+
+.winrate-series-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #aaa;
+  font-size: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.winrate-series-toggle input {
+  margin: 0;
+  accent-color: #777;
+}
+
+.winrate-swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.winrate-swatch.black {
+  background: #d06478;
+}
+
+.winrate-swatch.white {
+  background: #62aee8;
+}
+
+.winrate-chart svg {
+  display: block;
+  overflow: visible;
+}
+
+.winrate-axis path,
+.winrate-axis line {
+  stroke: #555;
+}
+
+.winrate-axis text {
+  fill: #888;
+  font-size: 9px;
+}
+
+.winrate-even-line {
+  stroke: #666;
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.winrate-line {
+  fill: none;
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+
+.winrate-line-black {
+  stroke: #d06478;
+}
+
+.winrate-line-white {
+  stroke: #62aee8;
+}
+
+.winrate-hover-line {
+  stroke: #ddd;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  pointer-events: none;
+}
+
+.winrate-hover-target {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.winrate-tooltip {
+  position: absolute;
+  z-index: 2;
+  display: none;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 108px;
+  padding: 7px 9px;
+  border: 1px solid #555;
+  border-radius: 5px;
+  background: rgba(24, 24, 24, 0.94);
+  color: #ddd;
+  font-size: 10px;
+  line-height: 1.25;
+  pointer-events: none;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+}
+
+.winrate-tooltip strong {
+  color: #fff;
+  font-size: 11px;
+}
+
+.winrate-tooltip span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.winrate-tooltip i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.winrate-tooltip i.black {
+  background: #d06478;
+}
+
+.winrate-tooltip i.white {
+  background: #62aee8;
+}
+
+.winrate-empty {
+  fill: #777;
+  font-size: 10px;
+}
+
 .move-suggestion {
   display: flex;
   align-items: center;
@@ -441,6 +643,40 @@ button:active {
 
 .toggle-setting + .toggle-setting {
   margin-top: 8px;
+}
+
+.select-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #aaa;
+  padding: 8px 12px;
+  background: #252525;
+  border-radius: 8px;
+}
+
+.select-setting select {
+  background: #333;
+  color: #fff;
+  border: 1px solid #444;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.select-setting select:hover {
+  background: #444;
+  border-color: #555;
+}
+
+.select-setting select:focus {
+  border-color: #2980b9;
+  box-shadow: 0 0 0 2px rgba(41, 128, 185, 0.2);
 }
 
 /* Game Info */
@@ -711,6 +947,85 @@ button:active {
 }
 
 
+.scene-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: #252525;
+  padding: 16px;
+  border-radius: 12px;
+}
+
+.setting-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-bottom: 1px solid #333;
+  padding-bottom: 12px;
+}
+
+.setting-group:last-of-type {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.setting-group h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #888;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.slider-row label {
+  flex: 1;
+  color: #ddd;
+}
+
+.slider-row input[type="range"] {
+  flex: 2;
+  accent-color: #2980b9;
+  cursor: pointer;
+}
+
+.slider-row input[type="color"] {
+  border: none;
+  background: transparent;
+  width: 40px;
+  height: 24px;
+  cursor: pointer;
+}
+
+.slider-row span {
+  width: 32px;
+  text-align: right;
+  font-family: monospace;
+  color: #aaa;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #ddd;
+  cursor: pointer;
+}
+
+.checkbox-row input {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+}
+
 @media (max-width: 800px) {
   .game-container {
     flex-direction: column;
@@ -718,7 +1033,11 @@ button:active {
   }
 
   .sidebar {
-    width: 100%;
+    width: 100% !important;
     max-width: 400px;
+  }
+
+  .panel-splitter {
+    display: none;
   }
 }

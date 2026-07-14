@@ -9,6 +9,12 @@ export interface AnalysisResult {
   ownership?: number[];
 }
 
+interface PendingRequest {
+  expectedResults: number;
+  results: AnalysisResult[];
+  resolve: (results: AnalysisResult[]) => void;
+}
+
 export interface MoveInfo {
   move: string;
   visits: number;
@@ -26,7 +32,7 @@ export interface RootInfo {
 export class KataGoEngine {
   private process: ChildProcess | null = null;
   private rl: readline.Interface | null = null;
-  private pendingRequests: Map<string, (result: AnalysisResult) => void> = new Map();
+  private pendingRequests: Map<string, PendingRequest> = new Map();
   private ready: Promise<void>;
   private resolveReady!: () => void;
 
@@ -77,9 +83,13 @@ export class KataGoEngine {
   private handleOutput(line: string): void {
     try {
       const result = JSON.parse(line) as AnalysisResult;
-      const callback = this.pendingRequests.get(result.id);
-      if (callback) {
-        callback(result);
+      const pending = this.pendingRequests.get(result.id);
+      if (pending) {
+        pending.results.push(result);
+        if (pending.results.length < pending.expectedResults) return;
+
+        pending.results.sort((a, b) => a.turnNumber - b.turnNumber);
+        pending.resolve(pending.results);
         this.pendingRequests.delete(result.id);
       }
     } catch {
@@ -92,24 +102,56 @@ export class KataGoEngine {
     boardSize: number,
     moves: Array<[string, string]>,
     komi: number = 6.5,
-    maxVisits: number = 100
+    maxVisits: number = 100,
+    includeOwnership: boolean = true
   ): Promise<AnalysisResult> {
     await this.ready;
 
-    return new Promise((resolve) => {
-      this.pendingRequests.set(id, resolve);
+    const results = await this.submit(id, 1, {
+      id,
+      moves,
+      rules: 'chinese',
+      komi,
+      boardXSize: boardSize,
+      boardYSize: boardSize,
+      maxVisits,
+      includeOwnership,
+      analyzeTurns: [moves.length],
+    });
 
-      const query = {
-        id,
-        moves,
-        rules: 'chinese',
-        komi,
-        boardXSize: boardSize,
-        boardYSize: boardSize,
-        maxVisits,
-        includeOwnership: true,
-        analyzeTurns: [moves.length],
-      };
+    return results[0];
+  }
+
+  async analyzeGame(
+    id: string,
+    boardSize: number,
+    moves: Array<[string, string]>,
+    komi: number = 6.5,
+    maxVisits: number = 1
+  ): Promise<AnalysisResult[]> {
+    await this.ready;
+
+    const analyzeTurns = Array.from({ length: moves.length + 1 }, (_, turn) => turn);
+    return this.submit(id, analyzeTurns.length, {
+      id,
+      moves,
+      rules: 'chinese',
+      komi,
+      boardXSize: boardSize,
+      boardYSize: boardSize,
+      maxVisits,
+      includeOwnership: false,
+      analyzeTurns,
+    });
+  }
+
+  private submit(
+    id: string,
+    expectedResults: number,
+    query: Record<string, unknown>
+  ): Promise<AnalysisResult[]> {
+    return new Promise((resolve) => {
+      this.pendingRequests.set(id, { expectedResults, results: [], resolve });
 
       this.process?.stdin?.write(JSON.stringify(query) + '\n');
     });

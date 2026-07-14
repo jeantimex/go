@@ -1,7 +1,13 @@
 import { GoGame, GameMove } from './game';
-import { BoardRenderer } from './board';
-import { analyzePosition, checkServerHealth, AnalysisResponse } from './analysis';
+import { BoardRenderer, LastMoveMarkerType } from './board';
+import {
+  analyzeGameWinrates,
+  analyzePosition,
+  checkServerHealth,
+  AnalysisResponse,
+} from './analysis';
 import { parseSgf, GameInfo, generateSgf } from './sgf';
+import { WinrateChart } from './winrate-chart';
 import './style.css';
 
 class App {
@@ -19,20 +25,34 @@ class App {
   private gameInfo: GameInfo | null = null;
   private selectedRules: 'japanese' | 'chinese' = 'japanese';
   private latestAnalysis: AnalysisResponse | null = null;
+  private winrateChart: WinrateChart;
+  private chartGeneration = 0;
+  private backfilledGeneration = -1;
+  private liveAnalysisTimer: number | null = null;
+  private replayTerritoryTimer: number | null = null;
+  private replayTerritoryRequest = 0;
+  private replayTerritoryCache = new Map<number, AnalysisResponse>();
 
   constructor() {
     this.game = new GoGame(19);
     this.createUI();
+    this.winrateChart = new WinrateChart(
+      document.getElementById('winrate-chart')!,
+      moveNumber => this.showMoveFromWinrateChart(moveNumber)
+    );
+    this.setupWinrateChartControls();
     this.renderer = new BoardRenderer(
       document.getElementById('board') as HTMLCanvasElement,
       this.game
     );
+    this.setupPanelSplitter();
     this.renderer.onMove = () => {
       this.updateUI();
       this.renderer.clearAnalysis();
       if (!this.game.isReplayMode) {
         this.hideReplayControls();
       }
+      this.scheduleLiveWinrateAnalysis();
     };
     this.renderer.render();
     this.setupBoardSizeButtons();
@@ -41,6 +61,7 @@ class App {
     this.checkServer();
     this.setupTabs();
     this.setupRulesToggle();
+    this.setupSceneSettings();
   }
 
   private async checkServer(): Promise<void> {
@@ -65,13 +86,23 @@ class App {
     app.innerHTML = `
       <div class="game-container">
         <div class="board-section">
-          <h1>Go Game</h1>
           <canvas id="board"></canvas>
         </div>
+        <div
+          class="panel-splitter"
+          id="panel-splitter"
+          role="separator"
+          aria-label="Resize game board and controls"
+          aria-orientation="vertical"
+          aria-valuemin="280"
+          aria-valuenow="340"
+          tabindex="0"
+        ></div>
         <div class="sidebar" id="sidebar">
           <div class="tabs-header">
             <button class="tab-btn active" data-tab="game">Game</button>
             <button class="tab-btn" data-tab="analysis">Analysis</button>
+            <button class="tab-btn" data-tab="scene">Scene</button>
           </div>
 
           <div class="tab-content active" id="tab-game">
@@ -111,23 +142,31 @@ class App {
                   <span class="detail-label">Event</span>
                   <span class="detail-value" id="game-event"></span>
                 </div>
+                <div class="detail-row" id="rules-row" style="display: none;">
+                  <span class="detail-label">Rules</span>
+                  <span class="detail-value" id="game-rules"></span>
+                </div>
+                <div class="detail-row" id="komi-row" style="display: none;">
+                  <span class="detail-label">Komi</span>
+                  <span class="detail-value" id="game-komi"></span>
+                </div>
               </div>
             </div>
 
             <div class="replay-controls" id="replay-controls" style="display: none;">
-              <div class="move-counter">
+              <div class="move-counter" style="text-align: center; margin-bottom: 8px; font-weight: 600; color: #aaa;">
                 Move <span id="current-move">0</span> / <span id="total-moves">0</span>
               </div>
               <div class="replay-slider-container">
-                <input type="range" id="move-slider" min="0" max="0" value="0" class="move-slider" />
+                <input type="range" id="move-slider" min="0" max="0" value="0" style="width: 100%; margin-bottom: 10px;" />
               </div>
               <div class="replay-buttons">
-                <button id="first-btn" title="First">⏮</button>
-                <button id="prev-btn" title="Previous">◀</button>
-                <button id="next-btn" title="Next">▶</button>
-                <button id="last-btn" title="Last">⏭</button>
+                <button id="first-btn" title="First Move">&lt;&lt;</button>
+                <button id="prev-btn" title="Previous Move">&lt;</button>
+                <button id="next-btn" title="Next Move">&gt;</button>
+                <button id="last-btn" title="Last Move">&gt;&gt;</button>
               </div>
-              <button class="btn-exit-replay" id="exit-replay-btn">Exit Replay</button>
+              <button class="btn-exit-replay" id="exit-replay-btn" style="margin-top: 10px; width: 100%;">Exit Replay</button>
             </div>
 
             <div class="turn-indicator" id="turn-indicator">
@@ -145,15 +184,31 @@ class App {
                 <span id="white-captures">0</span>
               </div>
             </div>
+
             <div class="buttons">
               <button class="btn-pass" id="pass-btn">Pass</button>
               <button class="btn-reset" id="reset-btn">Reset</button>
-              <button class="btn-review" id="review-btn" disabled>Review</button>
             </div>
 
-            <div class="load-section">
+            <div class="settings">
+              <label class="select-setting">
+                <span>Last move marker</span>
+                <select id="last-move-marker">
+                  <option value="none">None</option>
+                  <option value="circle">Circle</option>
+                  <option value="triangle">Triangle</option>
+                  <option value="number">Move Number</option>
+                </select>
+              </label>
+            </div>
+            
+            <div class="review-section" style="margin-top: 10px;">
+              <button class="btn-review" id="review-btn" disabled>Review Game</button>
+            </div>
+
+            <div class="load-section" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #444;">
               <h3>SGF Files</h3>
-              <div class="sgf-actions">
+              <div class="sgf-actions" style="margin-top: 8px;">
                 <label class="btn-load" for="sgf-input">
                   Load SGF File
                   <input type="file" id="sgf-input" accept=".sgf" style="display: none;" />
@@ -161,56 +216,69 @@ class App {
                 <button class="btn-save-sgf" id="save-sgf-btn">Save SGF File</button>
               </div>
             </div>
-
-            <div class="settings">
-              <h3>Settings</h3>
-              <label class="toggle-setting">
-                <span>Show last move</span>
-                <input type="checkbox" id="show-last-move" checked />
-                <div class="toggle-switch"></div>
-              </label>
-            </div>
           </div>
 
           <div class="tab-content" id="tab-analysis">
-            <div class="analysis-section" style="margin-top: 0; padding-top: 0; border-top: none;">
-              <div class="analysis-header">
-                <h3>KataGo Engine</h3>
-                <span id="server-status" class="status-badge offline">Offline</span>
+            <div class="analysis-controls">
+              <button class="btn-pass" id="analyze-btn">Analyze Position</button>
+              <div class="server-status">
+                <span>KataGo:</span>
+                <span class="status-badge offline" id="server-status">Offline</span>
               </div>
-              <button class="btn-analyze" id="analyze-btn" disabled>Analyze Position</button>
-              <div class="analysis-results" id="analysis-results" style="display: none;">
-                <div class="winrate-bar" id="winrate-bar">
-                  <span class="winrate-black" id="winrate-black">B 50%</span>
-                  <span class="winrate-white" id="winrate-white">W 50%</span>
-                </div>
-                
-                <div class="territory-estimates" id="territory-estimates" style="display: none;">
-                  <div class="estimates-header">
-                    <h4>Territory Estimates</h4>
-                    <div class="rules-toggle">
-                      <button class="rules-tab-btn active" id="btn-rules-japanese">Japanese</button>
-                      <button class="rules-tab-btn" id="btn-rules-chinese">Chinese</button>
-                    </div>
-                  </div>
-                  <div class="estimates-body">
-                    <div class="estimate-row">
-                      <span class="est-label">Black Score</span>
-                      <span class="est-value" id="est-black-val">0.0</span>
-                    </div>
-                    <div class="estimate-row">
-                      <span class="est-label">White Score</span>
-                      <span class="est-value" id="est-white-val">0.0</span>
-                    </div>
-                    <div class="estimate-row result-row">
-                      <span class="est-label">Estimated Lead</span>
-                      <span class="est-value" id="est-result-val">0.0</span>
-                    </div>
-                    <div class="estimate-details" id="est-details-text"></div>
-                  </div>
-                </div>
+            </div>
 
-                <div class="top-moves" id="top-moves"></div>
+            <div class="analysis-results" id="analysis-results" style="display: none;">
+              <div class="winrate-bar" id="winrate-bar">
+                <span class="winrate-black" id="winrate-black">B 50.0%</span>
+                <span class="winrate-white" id="winrate-white">W 50.0%</span>
+              </div>
+
+              <div class="top-moves" id="top-moves"></div>
+
+              <div class="territory-estimates" id="territory-estimates">
+                <div class="estimates-body">
+                  <div class="estimate-row">
+                    <span class="est-label">Black Score</span>
+                    <span class="est-value" id="est-black-val">0.0</span>
+                  </div>
+                  <div class="estimate-row">
+                    <span class="est-label">White Score</span>
+                    <span class="est-value" id="est-white-val">0.0</span>
+                  </div>
+                  <div class="estimate-row result-row">
+                    <span class="est-label">Estimated Lead</span>
+                    <span class="est-value" id="est-result-val">0.0</span>
+                  </div>
+                  <div class="estimate-details" id="est-details-text"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="winrate-chart-section">
+              <div class="winrate-chart-header">
+                <span>Win Rate by Move</span>
+                <span id="winrate-chart-status"></span>
+              </div>
+              <div class="winrate-series-controls">
+                <label class="winrate-series-toggle">
+                  <input type="checkbox" id="show-black-winrate" checked />
+                  <span class="winrate-swatch black"></span>
+                  Black
+                </label>
+                <label class="winrate-series-toggle">
+                  <input type="checkbox" id="show-white-winrate" checked />
+                  <span class="winrate-swatch white"></span>
+                  White
+                </label>
+              </div>
+              <div id="winrate-chart" class="winrate-chart"></div>
+            </div>
+
+            <div class="rules-toggle-container" style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid #333;">
+              <span style="font-size: 11px; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Scoring Rules</span>
+              <div class="rules-toggle">
+                <button class="rules-tab-btn active" id="btn-rules-japanese">Japanese</button>
+                <button class="rules-tab-btn" id="btn-rules-chinese">Chinese</button>
               </div>
             </div>
 
@@ -221,6 +289,104 @@ class App {
                 <input type="checkbox" id="show-ownership" />
                 <div class="toggle-switch"></div>
               </label>
+            </div>
+          </div>
+
+          <div class="tab-content" id="tab-scene">
+            <div class="scene-settings">
+              <div class="setting-group">
+                <h3>Ambient Light</h3>
+                <div class="slider-row">
+                  <label for="ambient-intensity">Intensity</label>
+                  <input type="range" id="ambient-intensity" min="0" max="2" step="0.05" value="1.0" />
+                  <span id="ambient-intensity-val">1.00</span>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <h3>Key Light (Warm)</h3>
+                <div class="slider-row">
+                  <label for="key-intensity">Intensity</label>
+                  <input type="range" id="key-intensity" min="0" max="3" step="0.05" value="2.0" />
+                  <span id="key-intensity-val">2.00</span>
+                </div>
+                <div class="slider-row">
+                  <label for="key-color">Color</label>
+                  <input type="color" id="key-color" value="#fff7e6" />
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <h3>Fill Light (Cool)</h3>
+                <div class="slider-row">
+                  <label for="fill-intensity">Intensity</label>
+                  <input type="range" id="fill-intensity" min="0" max="2" step="0.05" value="0.45" />
+                  <span id="fill-intensity-val">0.45</span>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <h3>Point Light (Bowl Accent)</h3>
+                <div class="slider-row">
+                  <label for="point-intensity">Intensity</label>
+                  <input type="range" id="point-intensity" min="0" max="2" step="0.05" value="0.8" />
+                  <span id="point-intensity-val">0.80</span>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <div class="checkbox-row">
+                  <input type="checkbox" id="enable-shadows" checked />
+                  <label for="enable-shadows">Enable 3D Shadows</label>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <h3>Collision Debug Meshes</h3>
+                <div class="checkbox-row">
+                  <input type="checkbox" id="show-lid-collision-mesh" />
+                  <label for="show-lid-collision-mesh">Show Lid Mesh</label>
+                </div>
+                <div class="checkbox-row" style="margin-top: 8px;">
+                  <input type="checkbox" id="show-stone-collision-mesh" />
+                  <label for="show-stone-collision-mesh">Show Stone Meshes</label>
+                </div>
+              </div>
+
+              <div class="setting-group shadow-params" id="shadow-params-section">
+                <h3>Shadow Settings</h3>
+                <div class="slider-row">
+                  <label for="shadow-resolution">Resolution</label>
+                  <select id="shadow-resolution" style="flex: 2; background: #333; color: #fff; border: 1px solid #444; border-radius: 4px; padding: 4px; font-size: 11px;">
+                    <option value="256">256 (Ultra-Soft)</option>
+                    <option value="512">512 (Very Soft)</option>
+                    <option value="1024" selected>1024 (Medium)</option>
+                    <option value="2048">2048 (Crisp)</option>
+                  </select>
+                </div>
+                <div class="slider-row" style="margin-top: 8px;">
+                  <label for="shadow-radius">Blur (Radius)</label>
+                  <input type="range" id="shadow-radius" min="1" max="16" step="0.5" value="3" />
+                  <span id="shadow-radius-val">3.0</span>
+                </div>
+                <div class="slider-row" style="margin-top: 8px;">
+                  <label for="shadow-opacity">Floor Opacity</label>
+                  <input type="range" id="shadow-opacity" min="0" max="0.5" step="0.01" value="0.15" />
+                  <span id="shadow-opacity-val">0.15</span>
+                </div>
+                <div class="slider-row" style="margin-top: 8px;">
+                  <label for="shadow-bias">Bias</label>
+                  <input type="range" id="shadow-bias" min="-0.005" max="0.005" step="0.0001" value="-0.0001" />
+                  <span id="shadow-bias-val">-0.0001</span>
+                </div>
+                <div class="slider-row" style="margin-top: 8px;">
+                  <label for="shadow-normal-bias">Normal Bias</label>
+                  <input type="range" id="shadow-normal-bias" min="0" max="0.1" step="0.002" value="0.02" />
+                  <span id="shadow-normal-bias-val">0.02</span>
+                </div>
+              </div>
+
+              <button id="reset-lights-btn" class="btn-pass" style="margin-top: 10px; width: 100%;">Reset Lights</button>
             </div>
           </div>
         </div>
@@ -247,16 +413,18 @@ class App {
       this.renderer.render();
       this.updateUI();
       this.hideAnalysis();
+      this.resetWinrateHistory();
     });
 
-    document.getElementById('show-last-move')!.addEventListener('change', (e) => {
-      this.renderer.showLastMove = (e.target as HTMLInputElement).checked;
+    document.getElementById('last-move-marker')!.addEventListener('change', (e) => {
+      this.renderer.lastMoveMarkerType = (e.target as HTMLSelectElement).value as LastMoveMarkerType;
       this.renderer.render();
     });
 
     document.getElementById('show-ownership')!.addEventListener('change', (e) => {
       this.renderer.showOwnership = (e.target as HTMLInputElement).checked;
       this.renderer.render();
+      this.scheduleReplayTerritory();
     });
 
     this.analyzeBtn.addEventListener('click', () => this.analyze());
@@ -305,18 +473,12 @@ class App {
 
   private loadSgf(content: string): void {
     const parsed = parseSgf(content);
+    this.resetWinrateHistory();
     this.gameInfo = parsed.info;
 
     if (parsed.info.boardSize !== this.game.size) {
       this.game = new GoGame(parsed.info.boardSize);
-      this.renderer = new BoardRenderer(
-        document.getElementById('board') as HTMLCanvasElement,
-        this.game
-      );
-      this.renderer.onMove = () => {
-        this.updateUI();
-        this.renderer.clearAnalysis();
-      };
+      this.renderer.updateGame(this.game);
 
       const buttons = document.querySelectorAll('.board-size-selector button');
       buttons.forEach((btn) => {
@@ -326,6 +488,7 @@ class App {
     }
 
     this.game.loadGame(parsed.moves);
+    this.game.lastMoveReplay();
     this.showGameInfo();
     this.showReplayControls();
     this.updateReplayUI();
@@ -394,26 +557,22 @@ class App {
 
     document.getElementById('first-btn')!.addEventListener('click', () => {
       this.game.firstMove();
-      this.updateReplayUI();
-      this.renderer.render();
+      this.finishReplayNavigation();
     });
 
     document.getElementById('prev-btn')!.addEventListener('click', () => {
       this.game.prevMove();
-      this.updateReplayUI();
-      this.renderer.render();
+      this.finishReplayNavigation();
     });
 
     document.getElementById('next-btn')!.addEventListener('click', () => {
       this.game.nextMove();
-      this.updateReplayUI();
-      this.renderer.render();
+      this.finishReplayNavigation();
     });
 
     document.getElementById('last-btn')!.addEventListener('click', () => {
       this.game.lastMoveReplay();
-      this.updateReplayUI();
-      this.renderer.render();
+      this.finishReplayNavigation();
     });
 
     document.getElementById('exit-replay-btn')!.addEventListener('click', () => {
@@ -428,8 +587,7 @@ class App {
     slider.addEventListener('input', () => {
       const moveNum = parseInt(slider.value, 10);
       this.game.goToMove(moveNum);
-      this.updateReplayUI();
-      this.renderer.render();
+      this.finishReplayNavigation();
     });
 
     document.addEventListener('keydown', (e) => {
@@ -438,25 +596,29 @@ class App {
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
         this.game.prevMove();
-        this.updateReplayUI();
-        this.renderer.render();
+        this.finishReplayNavigation();
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
         this.game.nextMove();
-        this.updateReplayUI();
-        this.renderer.render();
+        this.finishReplayNavigation();
       } else if (e.key === 'Home') {
         e.preventDefault();
         this.game.firstMove();
-        this.updateReplayUI();
-        this.renderer.render();
+        this.finishReplayNavigation();
       } else if (e.key === 'End') {
         e.preventDefault();
         this.game.lastMoveReplay();
-        this.updateReplayUI();
-        this.renderer.render();
+        this.finishReplayNavigation();
       }
     });
+  }
+
+  private finishReplayNavigation(): void {
+    this.replayTerritoryRequest++;
+    this.renderer.clearAnalysis();
+    this.updateReplayUI();
+    this.renderer.render();
+    this.scheduleReplayTerritory();
   }
 
   private updateReplayUI(): void {
@@ -477,16 +639,183 @@ class App {
       const moves = this.game.getKataGoMoves();
       const komi = this.gameInfo?.komi !== undefined ? this.gameInfo.komi : 6.5;
       const result = await analyzePosition(this.game.size, moves, komi);
-      this.showAnalysis(result);
-      this.renderer.setAnalysis(result);
+
+      try {
+        this.showAnalysis(result);
+        this.renderer.setAnalysis(result);
+        this.winrateChart.upsert({
+          moveNumber: moves.length,
+          winrate: result.winrate,
+          scoreLead: result.scoreLead,
+          visits: result.visits,
+        });
+        void this.backfillWinrateHistory();
+      } catch (error) {
+        // A presentation bug must not be reported as a KataGo outage.
+        console.error('Failed to display analysis:', error);
+      }
     } catch (error) {
-      console.error('Analysis failed:', error);
+      console.error('Analysis request failed:', error);
       this.serverOnline = false;
       this.updateServerStatus();
     } finally {
       this.analyzeBtn.disabled = false;
       this.analyzeBtn.textContent = 'Analyze Position';
     }
+  }
+
+  private scheduleLiveWinrateAnalysis(): void {
+    if (!this.serverOnline || this.game.isReplayMode) return;
+    if (this.backfilledGeneration !== this.chartGeneration) {
+      void this.backfillWinrateHistory();
+    }
+    if (this.liveAnalysisTimer !== null) {
+      window.clearTimeout(this.liveAnalysisTimer);
+    }
+
+    // Avoid starting work for accidental double-clicks or a rapid sequence of
+    // replay/navigation changes. Human play still feels immediate at 120ms.
+    this.liveAnalysisTimer = window.setTimeout(() => {
+      this.liveAnalysisTimer = null;
+      void this.updateLiveWinrate();
+    }, 120);
+  }
+
+  private setupWinrateChartControls(): void {
+    const blackToggle = document.getElementById('show-black-winrate') as HTMLInputElement;
+    const whiteToggle = document.getElementById('show-white-winrate') as HTMLInputElement;
+    const updateVisibility = (): void => {
+      this.winrateChart.setSeriesVisibility(blackToggle.checked, whiteToggle.checked);
+    };
+    blackToggle.addEventListener('change', updateVisibility);
+    whiteToggle.addEventListener('change', updateVisibility);
+  }
+
+  private showMoveFromWinrateChart(moveNumber: number): void {
+    if (this.game.getTotalMoves() === 0 && !this.game.isReplayMode) {
+      this.enterReplayForCurrentGame();
+    }
+    if (!this.game.isReplayMode) return;
+
+    this.game.goToMove(moveNumber);
+    this.finishReplayNavigation();
+  }
+
+  private scheduleReplayTerritory(): void {
+    const request = ++this.replayTerritoryRequest;
+    if (this.replayTerritoryTimer !== null) {
+      window.clearTimeout(this.replayTerritoryTimer);
+      this.replayTerritoryTimer = null;
+    }
+
+    const ownershipEnabled = (document.getElementById('show-ownership') as HTMLInputElement).checked;
+    if (!ownershipEnabled || !this.game.isReplayMode || !this.serverOnline) return;
+
+    const moveNumber = this.game.getCurrentMoveNumber();
+    const cached = this.replayTerritoryCache.get(moveNumber);
+    if (cached) {
+      this.renderer.setAnalysis(cached);
+      return;
+    }
+
+    const generation = this.chartGeneration;
+    const boardSize = this.game.size;
+    const moves = this.game.getKataGoMoves();
+    const komi = this.gameInfo?.komi ?? 6.5;
+
+    this.replayTerritoryTimer = window.setTimeout(async () => {
+      this.replayTerritoryTimer = null;
+      try {
+        const result = await analyzePosition(boardSize, moves, komi, 40, true);
+        const territoryOnly = { ...result, topMoves: [] };
+        if (generation === this.chartGeneration) {
+          this.replayTerritoryCache.set(moveNumber, territoryOnly);
+        }
+
+        const stillCurrent = request === this.replayTerritoryRequest
+          && generation === this.chartGeneration
+          && this.game.isReplayMode
+          && this.game.getCurrentMoveNumber() === moveNumber
+          && (document.getElementById('show-ownership') as HTMLInputElement).checked;
+        if (stillCurrent) this.renderer.setAnalysis(territoryOnly);
+      } catch (error) {
+        console.error('Replay territory analysis failed:', error);
+      }
+    }, 100);
+  }
+
+  private async updateLiveWinrate(): Promise<void> {
+    const generation = this.chartGeneration;
+    const moves = this.game.getKataGoMoves();
+    const moveNumber = moves.length;
+    const komi = this.gameInfo?.komi ?? 6.5;
+    const status = document.getElementById('winrate-chart-status')!;
+    status.textContent = 'Updating…';
+
+    try {
+      // Forty visits and no ownership keeps this responsive. A manual Analyze
+      // request later replaces this point with the full 200-visit result.
+      const result = await analyzePosition(this.game.size, moves, komi, 40, false);
+      if (generation !== this.chartGeneration || moveNumber !== this.game.moveHistory.length) return;
+
+      this.winrateChart.upsert({
+        moveNumber,
+        winrate: result.winrate,
+        scoreLead: result.scoreLead,
+        visits: result.visits,
+      });
+      status.textContent = `${result.visits} visits`;
+    } catch (error) {
+      console.error('Live win-rate update failed:', error);
+      if (generation === this.chartGeneration) status.textContent = 'Update failed';
+    }
+  }
+
+  private async backfillWinrateHistory(): Promise<void> {
+    const generation = this.chartGeneration;
+    if (this.backfilledGeneration === generation) return;
+    this.backfilledGeneration = generation;
+
+    const moves = this.game.getKataGoMoves();
+    if (moves.length === 0) return;
+
+    const boardSize = this.game.size;
+    const komi = this.gameInfo?.komi ?? 6.5;
+    const status = document.getElementById('winrate-chart-status')!;
+    status.textContent = 'Building history…';
+
+    try {
+      const points = await analyzeGameWinrates(boardSize, moves, komi, 1);
+      if (generation !== this.chartGeneration) return;
+
+      // Preserve any higher-visit live/manual point already on the chart.
+      this.winrateChart.mergeMissing(points);
+      status.textContent = `${points.length} positions`;
+    } catch (error) {
+      console.error('Win-rate history failed:', error);
+      if (generation === this.chartGeneration) {
+        status.textContent = 'History failed';
+        this.backfilledGeneration = -1;
+      }
+    }
+  }
+
+  private resetWinrateHistory(): void {
+    this.chartGeneration++;
+    this.backfilledGeneration = -1;
+    this.replayTerritoryRequest++;
+    this.replayTerritoryCache.clear();
+    if (this.replayTerritoryTimer !== null) {
+      window.clearTimeout(this.replayTerritoryTimer);
+      this.replayTerritoryTimer = null;
+    }
+    if (this.liveAnalysisTimer !== null) {
+      window.clearTimeout(this.liveAnalysisTimer);
+      this.liveAnalysisTimer = null;
+    }
+    this.winrateChart.clear();
+    const status = document.getElementById('winrate-chart-status');
+    if (status) status.textContent = '';
   }
 
   private showAnalysis(result: AnalysisResponse): void {
@@ -539,19 +868,127 @@ class App {
     });
   }
 
-  private changeBoardSize(size: number): void {
-    this.game = new GoGame(size);
-    this.renderer = new BoardRenderer(
-      document.getElementById('board') as HTMLCanvasElement,
-      this.game
+  private setupPanelSplitter(): void {
+    const container = document.querySelector('.game-container') as HTMLElement;
+    const sidebar = document.getElementById('sidebar')!;
+    const splitter = document.getElementById('panel-splitter')!;
+    const minSidebarWidth = 280;
+    const maxSidebarWidth = 620;
+    const minBoardWidth = 360;
+    const mobileBreakpoint = 800;
+    const storageKey = 'go-game-sidebar-width';
+    let isDragging = false;
+    let queuedWidth: number | null = null;
+    let resizeFrame: number | null = null;
+
+    const getMaximumWidth = (): number => Math.max(
+      minSidebarWidth,
+      Math.min(maxSidebarWidth, container.clientWidth - minBoardWidth - splitter.offsetWidth)
     );
-    this.renderer.onMove = () => {
-      this.updateUI();
-      this.renderer.clearAnalysis();
-      if (!this.game.isReplayMode) {
-        this.hideReplayControls();
+
+    const storeWidth = (width: number): void => {
+      try {
+        localStorage.setItem(storageKey, String(Math.round(width)));
+      } catch {
+        // Resizing should still work when browser storage is unavailable.
       }
     };
+
+    const applyWidth = (width: number, persist = false): number => {
+      if (window.innerWidth <= mobileBreakpoint) return sidebar.offsetWidth;
+
+      const maximumWidth = getMaximumWidth();
+      const clampedWidth = Math.max(minSidebarWidth, Math.min(width, maximumWidth));
+      sidebar.style.width = `${clampedWidth}px`;
+      splitter.setAttribute('aria-valuenow', String(Math.round(clampedWidth)));
+      splitter.setAttribute('aria-valuemax', String(Math.round(maximumWidth)));
+      this.renderer.resizeToContainer();
+      if (persist) storeWidth(clampedWidth);
+      return clampedWidth;
+    };
+
+    const queueWidth = (width: number): void => {
+      queuedWidth = width;
+      if (resizeFrame !== null) return;
+
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = null;
+        if (queuedWidth === null) return;
+        applyWidth(queuedWidth);
+        queuedWidth = null;
+      });
+    };
+
+    splitter.addEventListener('pointerdown', (event: PointerEvent) => {
+      if (event.button !== 0 || window.innerWidth <= mobileBreakpoint) return;
+      isDragging = true;
+      splitter.setPointerCapture(event.pointerId);
+      container.classList.add('is-resizing');
+      event.preventDefault();
+    });
+
+    splitter.addEventListener('pointermove', (event: PointerEvent) => {
+      if (!isDragging) return;
+      queueWidth(container.getBoundingClientRect().right - event.clientX);
+    });
+
+    const stopDragging = (event: PointerEvent): void => {
+      if (!isDragging) return;
+      isDragging = false;
+      container.classList.remove('is-resizing');
+      if (splitter.hasPointerCapture(event.pointerId)) {
+        splitter.releasePointerCapture(event.pointerId);
+      }
+
+      const finalWidth = queuedWidth ?? sidebar.getBoundingClientRect().width;
+      queuedWidth = null;
+      if (resizeFrame !== null) {
+        cancelAnimationFrame(resizeFrame);
+        resizeFrame = null;
+      }
+      applyWidth(finalWidth, true);
+    };
+
+    splitter.addEventListener('pointerup', stopDragging);
+    splitter.addEventListener('pointercancel', stopDragging);
+
+    splitter.addEventListener('keydown', (event: KeyboardEvent) => {
+      const step = event.shiftKey ? 48 : 16;
+      const currentWidth = sidebar.getBoundingClientRect().width;
+      let nextWidth: number | null = null;
+
+      if (event.key === 'ArrowLeft') nextWidth = currentWidth + step;
+      if (event.key === 'ArrowRight') nextWidth = currentWidth - step;
+      if (event.key === 'Home') nextWidth = minSidebarWidth;
+      if (event.key === 'End') nextWidth = getMaximumWidth();
+      if (nextWidth === null) return;
+
+      event.preventDefault();
+      applyWidth(nextWidth, true);
+    });
+
+    window.addEventListener('resize', () => {
+      if (window.innerWidth <= mobileBreakpoint) {
+        sidebar.style.removeProperty('width');
+        return;
+      }
+      applyWidth(sidebar.getBoundingClientRect().width);
+    });
+
+    let initialWidth = 340;
+    try {
+      const storedWidth = Number(localStorage.getItem(storageKey));
+      if (Number.isFinite(storedWidth) && storedWidth > 0) initialWidth = storedWidth;
+    } catch {
+      // Use the default width when browser storage is unavailable.
+    }
+    applyWidth(initialWidth);
+  }
+
+  private changeBoardSize(size: number): void {
+    this.game = new GoGame(size);
+    this.resetWinrateHistory();
+    this.renderer.updateGame(this.game);
     this.renderer.render();
     this.updateUI();
     this.hideAnalysis();
@@ -574,13 +1011,13 @@ class App {
     const tabButtons = document.querySelectorAll('.tab-btn');
     tabButtons.forEach((btn) => {
       btn.addEventListener('click', () => {
-        const tab = (btn as HTMLElement).dataset.tab as 'game' | 'analysis';
+        const tab = (btn as HTMLElement).dataset.tab as 'game' | 'analysis' | 'scene';
         this.switchTab(tab);
       });
     });
   }
 
-  private switchTab(tab: 'game' | 'analysis'): void {
+  private switchTab(tab: 'game' | 'analysis' | 'scene'): void {
     // Update button states
     const tabButtons = document.querySelectorAll('.tab-btn');
     tabButtons.forEach((btn) => {
@@ -591,6 +1028,148 @@ class App {
     // Update content states
     document.getElementById('tab-game')!.classList.toggle('active', tab === 'game');
     document.getElementById('tab-analysis')!.classList.toggle('active', tab === 'analysis');
+    document.getElementById('tab-scene')!.classList.toggle('active', tab === 'scene');
+  }
+
+  private setupSceneSettings(): void {
+    const ambientSlider = document.getElementById('ambient-intensity') as HTMLInputElement;
+    const ambientVal = document.getElementById('ambient-intensity-val')!;
+    ambientSlider.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value);
+      ambientVal.textContent = val.toFixed(2);
+      this.renderer.setAmbientLightIntensity(val);
+    });
+
+    const keySlider = document.getElementById('key-intensity') as HTMLInputElement;
+    const keyVal = document.getElementById('key-intensity-val')!;
+    keySlider.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value);
+      keyVal.textContent = val.toFixed(2);
+      this.renderer.setKeyLightIntensity(val);
+    });
+
+    const keyColorPicker = document.getElementById('key-color') as HTMLInputElement;
+    keyColorPicker.addEventListener('input', (e) => {
+      const color = (e.target as HTMLInputElement).value;
+      this.renderer.setKeyLightColor(color);
+    });
+
+    const fillSlider = document.getElementById('fill-intensity') as HTMLInputElement;
+    const fillVal = document.getElementById('fill-intensity-val')!;
+    fillSlider.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value);
+      fillVal.textContent = val.toFixed(2);
+      this.renderer.setFillLightIntensity(val);
+    });
+
+    const pointSlider = document.getElementById('point-intensity') as HTMLInputElement;
+    const pointVal = document.getElementById('point-intensity-val')!;
+    pointSlider.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value);
+      pointVal.textContent = val.toFixed(2);
+      this.renderer.setPointLightIntensity(val);
+    });
+
+    const enableShadowsCheckbox = document.getElementById('enable-shadows') as HTMLInputElement;
+    const shadowParamsSection = document.getElementById('shadow-params-section')!;
+    enableShadowsCheckbox.addEventListener('change', (e) => {
+      const enabled = (e.target as HTMLInputElement).checked;
+      this.renderer.setShadowsEnabled(enabled);
+      shadowParamsSection.style.display = enabled ? 'block' : 'none';
+    });
+
+    const showLidCollisionMesh = document.getElementById('show-lid-collision-mesh') as HTMLInputElement;
+    showLidCollisionMesh.addEventListener('change', () => {
+      this.renderer.setLidCollisionMeshVisible(showLidCollisionMesh.checked);
+    });
+
+    const showStoneCollisionMesh = document.getElementById('show-stone-collision-mesh') as HTMLInputElement;
+    showStoneCollisionMesh.addEventListener('change', () => {
+      this.renderer.setStoneCollisionMeshVisible(showStoneCollisionMesh.checked);
+    });
+
+    const shadowResSelect = document.getElementById('shadow-resolution') as HTMLSelectElement;
+    shadowResSelect.addEventListener('change', (e) => {
+      const res = parseInt((e.target as HTMLSelectElement).value, 10);
+      this.renderer.setShadowResolution(res);
+    });
+
+    const shadowRadiusSlider = document.getElementById('shadow-radius') as HTMLInputElement;
+    const shadowRadiusVal = document.getElementById('shadow-radius-val')!;
+    shadowRadiusSlider.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value);
+      shadowRadiusVal.textContent = val.toFixed(1);
+      this.renderer.setShadowRadius(val);
+    });
+
+    const shadowOpacitySlider = document.getElementById('shadow-opacity') as HTMLInputElement;
+    const shadowOpacityVal = document.getElementById('shadow-opacity-val')!;
+    shadowOpacitySlider.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value);
+      shadowOpacityVal.textContent = val.toFixed(2);
+      this.renderer.setShadowOpacity(val);
+    });
+
+    const shadowBiasSlider = document.getElementById('shadow-bias') as HTMLInputElement;
+    const shadowBiasVal = document.getElementById('shadow-bias-val')!;
+    shadowBiasSlider.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value);
+      shadowBiasVal.textContent = val.toFixed(4);
+      this.renderer.setShadowBias(val);
+    });
+
+    const shadowNormalBiasSlider = document.getElementById('shadow-normal-bias') as HTMLInputElement;
+    const shadowNormalBiasVal = document.getElementById('shadow-normal-bias-val')!;
+    shadowNormalBiasSlider.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value);
+      shadowNormalBiasVal.textContent = val.toFixed(3);
+      this.renderer.setShadowNormalBias(val);
+    });
+
+    const resetBtn = document.getElementById('reset-lights-btn') as HTMLButtonElement;
+    resetBtn.addEventListener('click', () => {
+      ambientSlider.value = '1.0';
+      ambientVal.textContent = '1.00';
+      this.renderer.setAmbientLightIntensity(1.0);
+
+      keySlider.value = '2.0';
+      keyVal.textContent = '2.00';
+      this.renderer.setKeyLightIntensity(2.0);
+
+      keyColorPicker.value = '#fff7e6';
+      this.renderer.setKeyLightColor('#fff7e6');
+
+      fillSlider.value = '0.45';
+      fillVal.textContent = '0.45';
+      this.renderer.setFillLightIntensity(0.45);
+
+      pointSlider.value = '0.8';
+      pointVal.textContent = '0.80';
+      this.renderer.setPointLightIntensity(0.8);
+
+      enableShadowsCheckbox.checked = true;
+      this.renderer.setShadowsEnabled(true);
+      shadowParamsSection.style.display = 'block';
+
+      shadowResSelect.value = '1024';
+      this.renderer.setShadowResolution(1024);
+
+      shadowRadiusSlider.value = '3';
+      shadowRadiusVal.textContent = '3.0';
+      this.renderer.setShadowRadius(3);
+
+      shadowOpacitySlider.value = '0.15';
+      shadowOpacityVal.textContent = '0.15';
+      this.renderer.setShadowOpacity(0.15);
+
+      shadowBiasSlider.value = '-0.0001';
+      shadowBiasVal.textContent = '-0.0001';
+      this.renderer.setShadowBias(-0.0001);
+
+      shadowNormalBiasSlider.value = '0.02';
+      shadowNormalBiasVal.textContent = '0.020';
+      this.renderer.setShadowNormalBias(0.02);
+    });
   }
 
   private setupRulesToggle(): void {
@@ -720,6 +1299,7 @@ class App {
     this.game.lastMoveReplay();
     this.updateReplayUI();
     this.renderer.render();
+    this.scheduleReplayTerritory();
   }
 }
 

@@ -3,7 +3,7 @@ import cors from 'cors';
 import { KataGoEngine } from './katago.js';
 
 const app = express();
-const port = 3001;
+const port = Number(process.env.PORT) || 3001;
 
 app.use(cors());
 app.use(express.json());
@@ -14,10 +14,11 @@ let requestId = 0;
 
 app.post('/api/analyze', async (req, res) => {
   try {
-    const { boardSize, moves, komi = 6.5 } = req.body;
+    const { boardSize, moves, komi = 6.5, maxVisits = 200, includeOwnership = true } = req.body;
+    const visits = Math.max(1, Math.min(Number(maxVisits) || 200, 1000));
 
     const id = `req-${++requestId}`;
-    const result = await katago.analyze(id, boardSize, moves, komi, 200);
+    const result = await katago.analyze(id, boardSize, moves, komi, visits, Boolean(includeOwnership));
 
     res.json({
       winrate: result.rootInfo.winrate,
@@ -34,6 +35,25 @@ app.post('/api/analyze', async (req, res) => {
   } catch (error) {
     console.error('Analysis error:', error);
     res.status(500).json({ error: 'Analysis failed' });
+  }
+});
+
+app.post('/api/analyze-game', async (req, res) => {
+  try {
+    const { boardSize, moves, komi = 6.5, maxVisits = 1 } = req.body;
+    const visits = Math.max(1, Math.min(Number(maxVisits) || 1, 200));
+    const id = `game-${++requestId}`;
+    const results = await katago.analyzeGame(id, boardSize, moves, komi, visits);
+
+    res.json(results.map((result) => ({
+      moveNumber: result.turnNumber,
+      winrate: result.rootInfo.winrate,
+      scoreLead: result.rootInfo.scoreLead,
+      visits: result.rootInfo.visits,
+    })));
+  } catch (error) {
+    console.error('Game analysis error:', error);
+    res.status(500).json({ error: 'Game analysis failed' });
   }
 });
 
