@@ -883,6 +883,13 @@ export class BoardRenderer {
     this.camera.updateProjectionMatrix();
   }
 
+  resizeToContainer(): void {
+    this.resize();
+    // Draw the existing scene immediately after the drawing buffer is resized.
+    // This avoids a blank frame without rerunning the expensive board/physics sync.
+    this.renderer.render(this.scene, this.camera);
+  }
+
   private getFitCameraDistance(): number {
     const size = this.game.size;
     const boardWidth2D = this.cellSize * (size - 1) + this.padding * 2;

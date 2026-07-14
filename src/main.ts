@@ -29,6 +29,9 @@ class App {
   private chartGeneration = 0;
   private backfilledGeneration = -1;
   private liveAnalysisTimer: number | null = null;
+  private replayTerritoryTimer: number | null = null;
+  private replayTerritoryRequest = 0;
+  private replayTerritoryCache = new Map<number, AnalysisResponse>();
 
   constructor() {
     this.game = new GoGame(19);
@@ -42,6 +45,7 @@ class App {
       document.getElementById('board') as HTMLCanvasElement,
       this.game
     );
+    this.setupPanelSplitter();
     this.renderer.onMove = () => {
       this.updateUI();
       this.renderer.clearAnalysis();
@@ -84,6 +88,16 @@ class App {
         <div class="board-section">
           <canvas id="board"></canvas>
         </div>
+        <div
+          class="panel-splitter"
+          id="panel-splitter"
+          role="separator"
+          aria-label="Resize game board and controls"
+          aria-orientation="vertical"
+          aria-valuemin="280"
+          aria-valuenow="340"
+          tabindex="0"
+        ></div>
         <div class="sidebar" id="sidebar">
           <div class="tabs-header">
             <button class="tab-btn active" data-tab="game">Game</button>
@@ -410,6 +424,7 @@ class App {
     document.getElementById('show-ownership')!.addEventListener('change', (e) => {
       this.renderer.showOwnership = (e.target as HTMLInputElement).checked;
       this.renderer.render();
+      this.scheduleReplayTerritory();
     });
 
     this.analyzeBtn.addEventListener('click', () => this.analyze());
@@ -542,26 +557,22 @@ class App {
 
     document.getElementById('first-btn')!.addEventListener('click', () => {
       this.game.firstMove();
-      this.updateReplayUI();
-      this.renderer.render();
+      this.finishReplayNavigation();
     });
 
     document.getElementById('prev-btn')!.addEventListener('click', () => {
       this.game.prevMove();
-      this.updateReplayUI();
-      this.renderer.render();
+      this.finishReplayNavigation();
     });
 
     document.getElementById('next-btn')!.addEventListener('click', () => {
       this.game.nextMove();
-      this.updateReplayUI();
-      this.renderer.render();
+      this.finishReplayNavigation();
     });
 
     document.getElementById('last-btn')!.addEventListener('click', () => {
       this.game.lastMoveReplay();
-      this.updateReplayUI();
-      this.renderer.render();
+      this.finishReplayNavigation();
     });
 
     document.getElementById('exit-replay-btn')!.addEventListener('click', () => {
@@ -576,8 +587,7 @@ class App {
     slider.addEventListener('input', () => {
       const moveNum = parseInt(slider.value, 10);
       this.game.goToMove(moveNum);
-      this.updateReplayUI();
-      this.renderer.render();
+      this.finishReplayNavigation();
     });
 
     document.addEventListener('keydown', (e) => {
@@ -586,25 +596,29 @@ class App {
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
         this.game.prevMove();
-        this.updateReplayUI();
-        this.renderer.render();
+        this.finishReplayNavigation();
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
         this.game.nextMove();
-        this.updateReplayUI();
-        this.renderer.render();
+        this.finishReplayNavigation();
       } else if (e.key === 'Home') {
         e.preventDefault();
         this.game.firstMove();
-        this.updateReplayUI();
-        this.renderer.render();
+        this.finishReplayNavigation();
       } else if (e.key === 'End') {
         e.preventDefault();
         this.game.lastMoveReplay();
-        this.updateReplayUI();
-        this.renderer.render();
+        this.finishReplayNavigation();
       }
     });
+  }
+
+  private finishReplayNavigation(): void {
+    this.replayTerritoryRequest++;
+    this.renderer.clearAnalysis();
+    this.updateReplayUI();
+    this.renderer.render();
+    this.scheduleReplayTerritory();
   }
 
   private updateReplayUI(): void {
@@ -684,10 +698,50 @@ class App {
     if (!this.game.isReplayMode) return;
 
     this.game.goToMove(moveNumber);
-    this.renderer.clearAnalysis();
-    this.updateReplayUI();
-    this.renderer.render();
-    this.switchTab('game');
+    this.finishReplayNavigation();
+  }
+
+  private scheduleReplayTerritory(): void {
+    const request = ++this.replayTerritoryRequest;
+    if (this.replayTerritoryTimer !== null) {
+      window.clearTimeout(this.replayTerritoryTimer);
+      this.replayTerritoryTimer = null;
+    }
+
+    const ownershipEnabled = (document.getElementById('show-ownership') as HTMLInputElement).checked;
+    if (!ownershipEnabled || !this.game.isReplayMode || !this.serverOnline) return;
+
+    const moveNumber = this.game.getCurrentMoveNumber();
+    const cached = this.replayTerritoryCache.get(moveNumber);
+    if (cached) {
+      this.renderer.setAnalysis(cached);
+      return;
+    }
+
+    const generation = this.chartGeneration;
+    const boardSize = this.game.size;
+    const moves = this.game.getKataGoMoves();
+    const komi = this.gameInfo?.komi ?? 6.5;
+
+    this.replayTerritoryTimer = window.setTimeout(async () => {
+      this.replayTerritoryTimer = null;
+      try {
+        const result = await analyzePosition(boardSize, moves, komi, 40, true);
+        const territoryOnly = { ...result, topMoves: [] };
+        if (generation === this.chartGeneration) {
+          this.replayTerritoryCache.set(moveNumber, territoryOnly);
+        }
+
+        const stillCurrent = request === this.replayTerritoryRequest
+          && generation === this.chartGeneration
+          && this.game.isReplayMode
+          && this.game.getCurrentMoveNumber() === moveNumber
+          && (document.getElementById('show-ownership') as HTMLInputElement).checked;
+        if (stillCurrent) this.renderer.setAnalysis(territoryOnly);
+      } catch (error) {
+        console.error('Replay territory analysis failed:', error);
+      }
+    }, 100);
   }
 
   private async updateLiveWinrate(): Promise<void> {
@@ -749,6 +803,12 @@ class App {
   private resetWinrateHistory(): void {
     this.chartGeneration++;
     this.backfilledGeneration = -1;
+    this.replayTerritoryRequest++;
+    this.replayTerritoryCache.clear();
+    if (this.replayTerritoryTimer !== null) {
+      window.clearTimeout(this.replayTerritoryTimer);
+      this.replayTerritoryTimer = null;
+    }
     if (this.liveAnalysisTimer !== null) {
       window.clearTimeout(this.liveAnalysisTimer);
       this.liveAnalysisTimer = null;
@@ -806,6 +866,123 @@ class App {
         this.changeBoardSize(size);
       });
     });
+  }
+
+  private setupPanelSplitter(): void {
+    const container = document.querySelector('.game-container') as HTMLElement;
+    const sidebar = document.getElementById('sidebar')!;
+    const splitter = document.getElementById('panel-splitter')!;
+    const minSidebarWidth = 280;
+    const maxSidebarWidth = 620;
+    const minBoardWidth = 360;
+    const mobileBreakpoint = 800;
+    const storageKey = 'go-game-sidebar-width';
+    let isDragging = false;
+    let queuedWidth: number | null = null;
+    let resizeFrame: number | null = null;
+
+    const getMaximumWidth = (): number => Math.max(
+      minSidebarWidth,
+      Math.min(maxSidebarWidth, container.clientWidth - minBoardWidth - splitter.offsetWidth)
+    );
+
+    const storeWidth = (width: number): void => {
+      try {
+        localStorage.setItem(storageKey, String(Math.round(width)));
+      } catch {
+        // Resizing should still work when browser storage is unavailable.
+      }
+    };
+
+    const applyWidth = (width: number, persist = false): number => {
+      if (window.innerWidth <= mobileBreakpoint) return sidebar.offsetWidth;
+
+      const maximumWidth = getMaximumWidth();
+      const clampedWidth = Math.max(minSidebarWidth, Math.min(width, maximumWidth));
+      sidebar.style.width = `${clampedWidth}px`;
+      splitter.setAttribute('aria-valuenow', String(Math.round(clampedWidth)));
+      splitter.setAttribute('aria-valuemax', String(Math.round(maximumWidth)));
+      this.renderer.resizeToContainer();
+      if (persist) storeWidth(clampedWidth);
+      return clampedWidth;
+    };
+
+    const queueWidth = (width: number): void => {
+      queuedWidth = width;
+      if (resizeFrame !== null) return;
+
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = null;
+        if (queuedWidth === null) return;
+        applyWidth(queuedWidth);
+        queuedWidth = null;
+      });
+    };
+
+    splitter.addEventListener('pointerdown', (event: PointerEvent) => {
+      if (event.button !== 0 || window.innerWidth <= mobileBreakpoint) return;
+      isDragging = true;
+      splitter.setPointerCapture(event.pointerId);
+      container.classList.add('is-resizing');
+      event.preventDefault();
+    });
+
+    splitter.addEventListener('pointermove', (event: PointerEvent) => {
+      if (!isDragging) return;
+      queueWidth(container.getBoundingClientRect().right - event.clientX);
+    });
+
+    const stopDragging = (event: PointerEvent): void => {
+      if (!isDragging) return;
+      isDragging = false;
+      container.classList.remove('is-resizing');
+      if (splitter.hasPointerCapture(event.pointerId)) {
+        splitter.releasePointerCapture(event.pointerId);
+      }
+
+      const finalWidth = queuedWidth ?? sidebar.getBoundingClientRect().width;
+      queuedWidth = null;
+      if (resizeFrame !== null) {
+        cancelAnimationFrame(resizeFrame);
+        resizeFrame = null;
+      }
+      applyWidth(finalWidth, true);
+    };
+
+    splitter.addEventListener('pointerup', stopDragging);
+    splitter.addEventListener('pointercancel', stopDragging);
+
+    splitter.addEventListener('keydown', (event: KeyboardEvent) => {
+      const step = event.shiftKey ? 48 : 16;
+      const currentWidth = sidebar.getBoundingClientRect().width;
+      let nextWidth: number | null = null;
+
+      if (event.key === 'ArrowLeft') nextWidth = currentWidth + step;
+      if (event.key === 'ArrowRight') nextWidth = currentWidth - step;
+      if (event.key === 'Home') nextWidth = minSidebarWidth;
+      if (event.key === 'End') nextWidth = getMaximumWidth();
+      if (nextWidth === null) return;
+
+      event.preventDefault();
+      applyWidth(nextWidth, true);
+    });
+
+    window.addEventListener('resize', () => {
+      if (window.innerWidth <= mobileBreakpoint) {
+        sidebar.style.removeProperty('width');
+        return;
+      }
+      applyWidth(sidebar.getBoundingClientRect().width);
+    });
+
+    let initialWidth = 340;
+    try {
+      const storedWidth = Number(localStorage.getItem(storageKey));
+      if (Number.isFinite(storedWidth) && storedWidth > 0) initialWidth = storedWidth;
+    } catch {
+      // Use the default width when browser storage is unavailable.
+    }
+    applyWidth(initialWidth);
   }
 
   private changeBoardSize(size: number): void {
@@ -1122,6 +1299,7 @@ class App {
     this.game.lastMoveReplay();
     this.updateReplayUI();
     this.renderer.render();
+    this.scheduleReplayTerritory();
   }
 }
 
