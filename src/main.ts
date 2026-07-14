@@ -49,6 +49,9 @@ class App {
       document.getElementById('board') as HTMLCanvasElement,
       this.game
     );
+    this.renderer.showOwnership = (
+      document.getElementById('show-ownership') as HTMLInputElement
+    ).checked;
     this.setupPanelSplitter();
     this.renderer.onMove = () => {
       this.preserveLiveChartMove = null;
@@ -275,33 +278,6 @@ class App {
               </div>
             </div>
 
-            <div class="analysis-results" id="analysis-results" style="display: none;">
-              <div class="winrate-bar" id="winrate-bar">
-                <span class="winrate-black" id="winrate-black">B 50.0%</span>
-                <span class="winrate-white" id="winrate-white">W 50.0%</span>
-              </div>
-
-              <div class="top-moves" id="top-moves"></div>
-
-              <div class="territory-estimates" id="territory-estimates">
-                <div class="estimates-body">
-                  <div class="estimate-row">
-                    <span class="est-label">Black Score</span>
-                    <span class="est-value" id="est-black-val">0.0</span>
-                  </div>
-                  <div class="estimate-row">
-                    <span class="est-label">White Score</span>
-                    <span class="est-value" id="est-white-val">0.0</span>
-                  </div>
-                  <div class="estimate-row result-row">
-                    <span class="est-label">Estimated Lead</span>
-                    <span class="est-value" id="est-result-val">0.0</span>
-                  </div>
-                  <div class="estimate-details" id="est-details-text"></div>
-                </div>
-              </div>
-            </div>
-
             <div class="winrate-chart-section">
               <div class="winrate-chart-header">
                 <span>Win Rate by Move</span>
@@ -323,6 +299,36 @@ class App {
               <button class="winrate-play-from-here" id="winrate-play-from-here" style="display: none;">
                 Play from move <span id="winrate-branch-move">0</span>
               </button>
+            </div>
+
+            <div class="analysis-results" id="analysis-results" style="display: none;">
+              <div class="winrate-bar" id="winrate-bar">
+                <span class="winrate-black" id="winrate-black">B 50.0%</span>
+                <span class="winrate-white" id="winrate-white">W 50.0%</span>
+              </div>
+
+              <div class="territory-estimates" id="territory-estimates">
+                <div class="estimates-body">
+                  <div class="estimate-row">
+                    <span class="est-label">Black Score</span>
+                    <span class="est-value" id="est-black-val">0.0</span>
+                  </div>
+                  <div class="estimate-row">
+                    <span class="est-label">White Score</span>
+                    <span class="est-value" id="est-white-val">0.0</span>
+                  </div>
+                  <div class="estimate-row result-row">
+                    <span class="est-label">Estimated Lead</span>
+                    <span class="est-value" id="est-result-val">0.0</span>
+                  </div>
+                  <div class="estimate-details" id="est-details-text"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="best-moves-section" id="best-moves-section">
+              <div class="best-moves-header">Best Moves</div>
+              <div class="top-moves" id="top-moves"></div>
             </div>
 
             <div class="rules-toggle-container" style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid #333;">
@@ -1587,6 +1593,11 @@ class App {
   private showAnalysis(result: AnalysisResponse, fullResult: AnalysisResponse = result): void {
     this.latestAnalysis = fullResult;
     this.winrateDisplay.style.display = 'block';
+    document.getElementById('best-moves-section')!.style.display = (
+      document.getElementById('show-best-moves') as HTMLInputElement
+    ).checked
+      ? 'block'
+      : 'none';
 
     const blackWinrate = result.winrate * 100;
     const whiteWinrate = 100 - blackWinrate;
@@ -1617,6 +1628,11 @@ class App {
 
   private hideAnalysis(): void {
     this.winrateDisplay.style.display = 'none';
+    document.getElementById('best-moves-section')!.style.display = (
+      document.getElementById('show-best-moves') as HTMLInputElement
+    ).checked
+      ? 'block'
+      : 'none';
     this.latestAnalysis = null;
     this.updateScoreEstimates();
   }

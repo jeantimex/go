@@ -434,6 +434,21 @@ button:active {
   gap: 6px;
 }
 
+.best-moves-section {
+  background: #252525;
+  border-radius: 8px;
+  padding: 10px 12px 12px;
+}
+
+.best-moves-header {
+  margin-bottom: 9px;
+  color: #ccc;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
 .winrate-chart-section {
   background: #252525;
   border-radius: 8px;
@@ -1223,6 +1238,7 @@ body.light-theme {
 .light-theme .panel-title,
 .light-theme .captures h3,
 .light-theme .settings h3,
+.light-theme .best-moves-header,
 .light-theme .winrate-chart-header,
 .light-theme .setting-group h3 {
   color: #6c747b;
@@ -1231,6 +1247,7 @@ body.light-theme {
 .light-theme .turn-indicator,
 .light-theme .capture-row,
 .light-theme .analysis-results,
+.light-theme .best-moves-section,
 .light-theme .winrate-chart-section,
 .light-theme .scene-settings,
 .light-theme .toggle-setting,
@@ -2360,6 +2377,7 @@ body {
   .select-setting,
   .toggle-setting,
   .analysis-results,
+  .best-moves-section,
   .winrate-chart-section,
   .scene-settings {
     border: 1px solid #373b3f;
@@ -2458,6 +2476,10 @@ body {
   }
 
   .analysis-results {
+    padding: 9px;
+  }
+
+  .best-moves-section {
     padding: 9px;
   }
 
