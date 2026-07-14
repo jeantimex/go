@@ -198,30 +198,29 @@ class App {
             </div>
 
             <div class="analysis-results" id="analysis-results" style="display: none;">
-              <div class="winrate-bar-container">
-                <div class="winrate-bar-label">
-                  <span>Win Rate</span>
-                  <span id="winrate-val">50%</span>
-                </div>
-                <div class="winrate-bar-bg">
-                  <div class="winrate-bar-fill" id="winrate-fill" style="width: 50%"></div>
-                </div>
+              <div class="winrate-bar" id="winrate-bar">
+                <span class="winrate-black" id="winrate-black">B 50.0%</span>
+                <span class="winrate-white" id="winrate-white">W 50.0%</span>
               </div>
 
-              <div class="score-estimates">
-                <div class="estimate-row">
-                  <span class="est-label">Black Score</span>
-                  <span class="est-value" id="est-black-val">0.0</span>
+              <div class="top-moves" id="top-moves"></div>
+
+              <div class="territory-estimates" id="territory-estimates">
+                <div class="estimates-body">
+                  <div class="estimate-row">
+                    <span class="est-label">Black Score</span>
+                    <span class="est-value" id="est-black-val">0.0</span>
+                  </div>
+                  <div class="estimate-row">
+                    <span class="est-label">White Score</span>
+                    <span class="est-value" id="est-white-val">0.0</span>
+                  </div>
+                  <div class="estimate-row result-row">
+                    <span class="est-label">Estimated Lead</span>
+                    <span class="est-value" id="est-result-val">0.0</span>
+                  </div>
+                  <div class="estimate-details" id="est-details-text"></div>
                 </div>
-                <div class="estimate-row">
-                  <span class="est-label">White Score</span>
-                  <span class="est-value" id="est-white-val">0.0</span>
-                </div>
-                <div class="estimate-row result-row">
-                  <span class="est-label">Estimated Lead</span>
-                  <span class="est-value" id="est-result-val">0.0</span>
-                </div>
-                <div class="estimate-details" id="est-details-text"></div>
               </div>
             </div>
 
@@ -588,10 +587,16 @@ class App {
       const moves = this.game.getKataGoMoves();
       const komi = this.gameInfo?.komi !== undefined ? this.gameInfo.komi : 6.5;
       const result = await analyzePosition(this.game.size, moves, komi);
-      this.showAnalysis(result);
-      this.renderer.setAnalysis(result);
+
+      try {
+        this.showAnalysis(result);
+        this.renderer.setAnalysis(result);
+      } catch (error) {
+        // A presentation bug must not be reported as a KataGo outage.
+        console.error('Failed to display analysis:', error);
+      }
     } catch (error) {
-      console.error('Analysis failed:', error);
+      console.error('Analysis request failed:', error);
       this.serverOnline = false;
       this.updateServerStatus();
     } finally {
