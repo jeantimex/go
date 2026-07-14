@@ -30,6 +30,7 @@ class App {
   private backfilledGeneration = -1;
   private liveAnalysisTimer: number | null = null;
   private liveAnalysisRequest = 0;
+  private preserveLiveChartMove: number | null = null;
   private replayAnalysisTimer: number | null = null;
   private replayAnalysisRequest = 0;
   private replayAnalysisCache = new Map<number, AnalysisResponse>();
@@ -48,6 +49,7 @@ class App {
     );
     this.setupPanelSplitter();
     this.renderer.onMove = () => {
+      this.preserveLiveChartMove = null;
       this.updateUI();
       this.renderer.clearAnalysis();
       this.renderer.render();
@@ -190,6 +192,7 @@ class App {
             </div>
 
             <div class="buttons">
+              <button class="btn-undo" id="undo-btn" disabled>Undo</button>
               <button class="btn-pass" id="pass-btn">Pass</button>
               <button class="btn-reset" id="reset-btn">Reset</button>
             </div>
@@ -420,12 +423,17 @@ class App {
     this.topMovesDisplay = document.getElementById('top-moves')!;
 
     document.getElementById('pass-btn')!.addEventListener('click', () => {
+      this.preserveLiveChartMove = null;
       this.game.pass();
       this.renderer.clearAnalysis();
       this.renderer.render();
       this.updateUI();
       this.hideAnalysis();
       this.scheduleLiveWinrateAnalysis();
+    });
+
+    document.getElementById('undo-btn')!.addEventListener('click', () => {
+      this.undoLastMove();
     });
 
     document.getElementById('reset-btn')!.addEventListener('click', () => {
@@ -643,6 +651,11 @@ class App {
     });
 
     document.addEventListener('keydown', (e) => {
+      if (!this.game.isReplayMode && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        this.undoLastMove();
+        return;
+      }
       if (!this.game.isReplayMode) return;
 
       if (e.key === 'ArrowLeft') {
@@ -689,9 +702,23 @@ class App {
     const branchMove = this.game.getCurrentMoveNumber();
     this.game.exitReplayMode();
     this.pruneAnalysisAfter(branchMove);
+    this.preserveLiveChartMove = branchMove;
     this.renderer.clearAnalysis();
     this.hideAnalysis();
     this.hideReplayControls();
+    this.renderer.render();
+    this.updateUI();
+    this.scheduleLiveWinrateAnalysis();
+  }
+
+  private undoLastMove(): void {
+    if (!this.game.undoLastMove()) return;
+
+    const moveNumber = this.game.moveHistory.length;
+    this.pruneAnalysisAfter(moveNumber);
+    this.preserveLiveChartMove = moveNumber;
+    this.renderer.clearAnalysis();
+    this.hideAnalysis();
     this.renderer.render();
     this.updateUI();
     this.scheduleLiveWinrateAnalysis();
@@ -828,7 +855,9 @@ class App {
         && (document.getElementById('live-game-analysis') as HTMLInputElement).checked;
       if (!stillCurrent) return;
 
-      this.applyPositionAnalysis(result, moveNumber, 'live');
+      const preserveChartPoint = this.preserveLiveChartMove === moveNumber;
+      if (preserveChartPoint) this.preserveLiveChartMove = null;
+      this.applyPositionAnalysis(result, moveNumber, 'live', !preserveChartPoint);
       status.textContent = `${result.visits} visits`;
     } catch (error) {
       console.error('Live win-rate update failed:', error);
@@ -849,14 +878,15 @@ class App {
   private applyPositionAnalysis(
     result: AnalysisResponse,
     moveNumber: number,
-    source: 'manual' | 'live' | 'replay'
+    source: 'manual' | 'live' | 'replay',
+    replaceExistingChartPoint = source !== 'replay'
   ): void {
     this.winrateChart.upsert({
       moveNumber,
       winrate: result.winrate,
       scoreLead: result.scoreLead,
       visits: result.visits,
-    });
+    }, replaceExistingChartPoint);
 
     const ownershipEnabled = (document.getElementById('show-ownership') as HTMLInputElement).checked;
     const bestMovesEnabled = (document.getElementById('show-best-moves') as HTMLInputElement).checked;
@@ -906,6 +936,7 @@ class App {
   private resetWinrateHistory(): void {
     this.chartGeneration++;
     this.backfilledGeneration = -1;
+    this.preserveLiveChartMove = null;
     this.liveAnalysisRequest++;
     this.replayAnalysisRequest++;
     this.replayAnalysisCache.clear();
@@ -1135,6 +1166,8 @@ class App {
     if (reviewBtn) {
       reviewBtn.disabled = this.game.moveHistory.length === 0;
     }
+    const undoBtn = document.getElementById('undo-btn') as HTMLButtonElement | null;
+    if (undoBtn) undoBtn.disabled = !this.game.canUndo();
   }
 
   private setupTabs(): void {

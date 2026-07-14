@@ -45,12 +45,16 @@ export class WinrateChart {
     this.render();
   }
 
-  upsert(point: WinratePoint): void {
+  upsert(point: WinratePoint, replaceExisting = true): void {
     const previousMaxMove = this.points.length > 0
       ? Math.max(...this.points.map(item => item.moveNumber))
       : null;
     const existing = this.points.findIndex(item => item.moveNumber === point.moveNumber);
     if (existing >= 0) {
+      // Undo/replay may request the same historical position again. Keep the
+      // strongest result instead of replacing it with an equal- or lower-visit
+      // live estimate, which would make established history visibly drift.
+      if (!replaceExisting || point.visits <= this.points[existing].visits) return;
       this.points[existing] = point;
     } else {
       this.points.push(point);

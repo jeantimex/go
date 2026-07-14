@@ -3,6 +3,16 @@ export type Position = { x: number; y: number };
 export type KataGoMove = [string, string]; // ["B" | "W", "D4"]
 export type GameMove = { color: 'black' | 'white'; x: number; y: number };
 
+type GameSnapshot = {
+  board: Stone[][];
+  currentPlayer: 'black' | 'white';
+  lastMove: Position | null;
+  koPosition: Position | null;
+  captures: { black: number; white: number };
+  moveHistory: Position[];
+  moveColors: ('black' | 'white')[];
+};
+
 export class GoGame {
   readonly size: number;
   board: Stone[][];
@@ -11,6 +21,7 @@ export class GoGame {
   koPosition: Position | null = null;
   captures: { black: number; white: number } = { black: 0, white: 0 };
   moveHistory: Position[] = [];
+  private undoStack: GameSnapshot[] = [];
 
   constructor(size: number = 19) {
     this.size = size;
@@ -114,6 +125,7 @@ export class GoGame {
   placeStone(x: number, y: number): boolean {
     if (!this.canPlaceStone(x, y)) return false;
 
+    this.saveUndoState();
     this.board[y][x] = this.currentPlayer;
 
     const opponent = this.currentPlayer === 'black' ? 'white' : 'black';
@@ -159,6 +171,7 @@ export class GoGame {
   }
 
   pass(): void {
+    this.saveUndoState();
     this.currentPlayer = this.currentPlayer === 'black' ? 'white' : 'black';
     this.koPosition = null;
     this.lastMove = null;
@@ -172,6 +185,36 @@ export class GoGame {
     this.captures = { black: 0, white: 0 };
     this.moveHistory = [];
     this.moveColors = [];
+    this.undoStack = [];
+  }
+
+  canUndo(): boolean {
+    return !this.isReplayMode && this.undoStack.length > 0;
+  }
+
+  undoLastMove(): boolean {
+    if (!this.canUndo()) return false;
+    const snapshot = this.undoStack.pop()!;
+    this.board = snapshot.board;
+    this.currentPlayer = snapshot.currentPlayer;
+    this.lastMove = snapshot.lastMove;
+    this.koPosition = snapshot.koPosition;
+    this.captures = snapshot.captures;
+    this.moveHistory = snapshot.moveHistory;
+    this.moveColors = snapshot.moveColors;
+    return true;
+  }
+
+  private saveUndoState(): void {
+    this.undoStack.push({
+      board: this.board.map(row => [...row]),
+      currentPlayer: this.currentPlayer,
+      lastMove: this.lastMove ? { ...this.lastMove } : null,
+      koPosition: this.koPosition ? { ...this.koPosition } : null,
+      captures: { ...this.captures },
+      moveHistory: this.moveHistory.map(move => ({ ...move })),
+      moveColors: [...this.moveColors],
+    });
   }
 
   moveColors: ('black' | 'white')[] = [];
@@ -232,6 +275,7 @@ export class GoGame {
       this.captures = { black: 0, white: 0 };
       this.moveHistory = [];
       this.moveColors = [];
+      this.undoStack = [];
       this.currentMoveIndex = -1;
     }
 
@@ -283,6 +327,7 @@ export class GoGame {
     this.captures = { black: 0, white: 0 };
     this.moveHistory = [];
     this.moveColors = [];
+    this.undoStack = [];
     this.isReplayMode = false;
 
     for (let i = 0; i < targetHistory.length; i++) {

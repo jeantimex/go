@@ -234,6 +234,20 @@ button:active {
   color: #fff;
 }
 
+.btn-undo {
+  background: #3f566b;
+  color: #fff;
+}
+
+.btn-undo:hover:not(:disabled) {
+  background: #4d6a84;
+}
+
+.btn-undo:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .btn-pass:hover {
   background: #555;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
