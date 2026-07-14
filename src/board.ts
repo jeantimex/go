@@ -210,9 +210,10 @@ export class BoardRenderer {
     this.controls.dampingFactor = 0.05;
     this.controls.minDistance = 4;
     this.controls.maxDistance = 80;
-    // Permit orbiting underneath the model to inspect the board, bowls, and
-    // legs from below. Avoid the exact pole where OrbitControls can flip.
-    this.controls.minPolarAngle = 0.05;
+    // Start from a true overhead view. OrbitControls internally applies its
+    // own epsilon at the pole, which keeps interaction stable without a
+    // visible camera tilt.
+    this.controls.minPolarAngle = 0;
     this.controls.maxPolarAngle = Math.PI - 0.08;
     this.controls.addEventListener('start', this.beginCameraInteraction);
     this.controls.addEventListener('change', this.handleCameraChange);
@@ -1016,12 +1017,17 @@ export class BoardRenderer {
 
   private resetCamera(): void {
     const dist = this.getFitCameraDistance();
-    
-    // Set camera straight top-down looking at the board center
-    this.camera.position.set(this.boardCenterVec.x, this.boardCenterVec.y + dist, this.boardCenterVec.z + 0.01);
+    const target = new THREE.Vector3(
+      this.boardCenterVec.x,
+      this.boardTopY,
+      this.boardCenterVec.z
+    );
+
+    // Align the camera exactly above the center of the playable board.
+    this.camera.position.set(target.x, target.y + dist, target.z);
     
     if (this.controls) {
-      this.controls.target.copy(this.boardCenterVec);
+      this.controls.target.copy(target);
       this.controls.update();
     }
   }
