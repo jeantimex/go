@@ -162,9 +162,10 @@ export class BoardRenderer {
 
     this.scene = new THREE.Scene();
     
-    // Set up foggy grid helper background matching threejs.org/examples/#webgl_animation_skinning_morph
+    // Keep just enough distant haze to blend the large grid into the backdrop
+    // without washing out the board when the camera is pulled back.
     this.scene.background = new THREE.Color(0xe0e0e0);
-    this.scene.fog = new THREE.Fog(0xe0e0e0, 45, 120); // Pushed fog start out to 45 so the board stays perfectly crisp
+    this.scene.fog = new THREE.Fog(0xe0e0e0, 90, 190);
 
     // Grid floor helper
     this.gridHelper = new THREE.GridHelper(200, 40, 0x000000, 0x000000);
@@ -203,7 +204,10 @@ export class BoardRenderer {
     this.controls.dampingFactor = 0.05;
     this.controls.minDistance = 4;
     this.controls.maxDistance = 80;
-    this.controls.maxPolarAngle = Math.PI / 2 - 0.05; // Prevent camera from going below ground
+    // Permit orbiting underneath the model to inspect the board, bowls, and
+    // legs from below. Avoid the exact pole where OrbitControls can flip.
+    this.controls.minPolarAngle = 0.05;
+    this.controls.maxPolarAngle = Math.PI - 0.08;
     this.controls.addEventListener('start', this.beginCameraInteraction);
     this.controls.addEventListener('change', this.deferFullResolution);
     this.controls.addEventListener('end', this.endCameraInteraction);
