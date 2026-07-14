@@ -219,7 +219,7 @@ export class GoGame {
 
   moveColors: ('black' | 'white')[] = [];
 
-  private posToGtp(x: number, y: number): string {
+  positionToGtp(x: number, y: number): string {
     const letters = 'ABCDEFGHJKLMNOPQRST';
     return `${letters[x]}${this.size - y}`;
   }
@@ -238,7 +238,7 @@ export class GoGame {
   getKataGoMoves(): KataGoMove[] {
     return this.moveHistory.map((pos, i) => {
       const color = this.moveColors[i] === 'black' ? 'B' : 'W';
-      return [color, this.posToGtp(pos.x, pos.y)];
+      return [color, this.positionToGtp(pos.x, pos.y)];
     });
   }
 
@@ -260,6 +260,15 @@ export class GoGame {
 
   getCurrentMoveNumber(): number {
     return this.currentMoveIndex + 1;
+  }
+
+  getTimelineMoves(): GameMove[] {
+    if (this.isReplayMode) return this.loadedMoves.map(move => ({ ...move }));
+    return this.moveHistory.map((position, index) => ({
+      color: this.moveColors[index],
+      x: position.x,
+      y: position.y,
+    }));
   }
 
   goToMove(moveNumber: number): void {

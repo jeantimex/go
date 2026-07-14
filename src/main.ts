@@ -98,6 +98,22 @@ class App {
     const app = document.getElementById('app')!;
     app.innerHTML = `
       <div class="game-container">
+        <header class="app-header">
+          <div class="app-brand">
+            <span class="brand-mark">碁</span>
+            <span>KataGo</span>
+          </div>
+          <div class="tabs-header">
+            <button class="tab-btn active" data-tab="game">Game</button>
+            <button class="tab-btn" data-tab="analysis">Analysis</button>
+            <button class="tab-btn" data-tab="scene">Scene</button>
+          </div>
+          <div class="header-actions" aria-label="Application shortcuts">
+            <button class="icon-button" id="header-load-btn" title="Load SGF" aria-label="Load SGF">⌑</button>
+            <button class="icon-button" data-tab-target="scene" title="Scene settings" aria-label="Scene settings">⚙</button>
+            <button class="icon-button" id="theme-button" title="Display theme" aria-label="Display theme">☼</button>
+          </div>
+        </header>
         <div class="board-section">
           <canvas id="board"></canvas>
         </div>
@@ -112,13 +128,14 @@ class App {
           tabindex="0"
         ></div>
         <div class="sidebar" id="sidebar">
-          <div class="tabs-header">
-            <button class="tab-btn active" data-tab="game">Game</button>
-            <button class="tab-btn" data-tab="analysis">Analysis</button>
-            <button class="tab-btn" data-tab="scene">Scene</button>
-          </div>
-
           <div class="tab-content active" id="tab-game">
+            <div class="panel-title">Game Mode</div>
+            <div class="mode-selector">
+              <button class="mode-button active" id="mode-ai"><span></span>Play vs AI</button>
+              <button class="mode-button" id="mode-human"><span></span>Play vs Human</button>
+            </div>
+
+            <div class="panel-title">Board Size</div>
             <div class="board-size-selector">
               <button data-size="9">9x9</button>
               <button data-size="13">13x13</button>
@@ -184,7 +201,7 @@ class App {
 
             <div class="turn-indicator" id="turn-indicator">
               <div class="stone-icon black"></div>
-              <span>Black's turn</span>
+              <span>Black to play</span>
             </div>
             <div class="captures">
               <h3>Captures</h3>
@@ -207,7 +224,7 @@ class App {
             <div class="ai-settings" id="ai-settings">
               <label class="toggle-setting">
                 <span>Play against AI</span>
-                <input type="checkbox" id="play-against-ai" />
+                <input type="checkbox" id="play-against-ai" checked />
                 <div class="toggle-switch"></div>
               </label>
               <label class="select-setting">
@@ -257,6 +274,7 @@ class App {
           </div>
 
           <div class="tab-content" id="tab-analysis">
+            <div class="panel-title">Analysis Overview</div>
             <div class="analysis-controls">
               <button class="btn-pass" id="analyze-btn">Analyze Position</button>
               <div class="server-status">
@@ -327,23 +345,24 @@ class App {
               <h3>Analysis Settings</h3>
               <label class="toggle-setting">
                 <span>Live game analysis</span>
-                <input type="checkbox" id="live-game-analysis" />
+                <input type="checkbox" id="live-game-analysis" checked />
                 <div class="toggle-switch"></div>
               </label>
               <label class="toggle-setting">
                 <span>Best moves</span>
-                <input type="checkbox" id="show-best-moves" />
+                <input type="checkbox" id="show-best-moves" checked />
                 <div class="toggle-switch"></div>
               </label>
               <label class="toggle-setting">
                 <span>Show territory</span>
-                <input type="checkbox" id="show-ownership" />
+                <input type="checkbox" id="show-ownership" checked />
                 <div class="toggle-switch"></div>
               </label>
             </div>
           </div>
 
           <div class="tab-content" id="tab-scene">
+            <div class="panel-title">Lighting</div>
             <div class="scene-settings">
               <div class="setting-group">
                 <h3>Ambient Light</h3>
@@ -441,8 +460,31 @@ class App {
             </div>
           </div>
         </div>
+        <footer class="action-dock">
+          <div class="dock-section dock-files" id="dock-files"></div>
+          <div class="move-strip">
+            <button class="strip-arrow" id="dock-prev" title="Previous move">‹</button>
+            <div class="move-timeline" id="move-timeline" aria-label="Move timeline"></div>
+            <button class="strip-arrow" id="dock-next" title="Next move">›</button>
+          </div>
+          <div class="dock-section dock-actions">
+            <div class="panel-title">Quick Actions</div>
+            <div class="quick-action-grid" id="quick-action-grid"></div>
+          </div>
+        </footer>
       </div>
     `;
+
+    document.getElementById('dock-files')!.appendChild(document.querySelector('.load-section')!);
+    document.getElementById('quick-action-grid')!.appendChild(document.querySelector('.review-section')!);
+    document.querySelector('.mode-selector')!.insertAdjacentElement(
+      'afterend',
+      document.getElementById('replay-controls')!
+    );
+    document.getElementById('quick-action-grid')!.insertAdjacentHTML('beforeend', `
+      <button class="quick-action" id="new-game-btn">＋ <span>New Game</span></button>
+      <button class="quick-action" id="export-board-btn">▣ <span>Export Board Image</span></button>
+    `);
 
     this.turnIndicator = document.querySelector('.turn-indicator span')!;
     this.stoneIcon = document.querySelector('.turn-indicator .stone-icon')!;
@@ -543,6 +585,106 @@ class App {
     });
 
     this.analyzeBtn.addEventListener('click', () => this.analyze());
+
+    const aiToggle = document.getElementById('play-against-ai') as HTMLInputElement;
+    const modeAi = document.getElementById('mode-ai')!;
+    const modeHuman = document.getElementById('mode-human')!;
+    const setMode = (againstAi: boolean): void => {
+      aiToggle.checked = againstAi;
+      modeAi.classList.toggle('active', againstAi);
+      modeHuman.classList.toggle('active', !againstAi);
+      aiToggle.dispatchEvent(new Event('change'));
+    };
+    modeAi.addEventListener('click', () => setMode(true));
+    modeHuman.addEventListener('click', () => setMode(false));
+    aiToggle.addEventListener('change', () => {
+      modeAi.classList.toggle('active', aiToggle.checked);
+      modeHuman.classList.toggle('active', !aiToggle.checked);
+    });
+
+    document.getElementById('header-load-btn')!.addEventListener('click', () => {
+      document.getElementById('sgf-input')!.click();
+    });
+    document.querySelector('[data-tab-target="scene"]')!.addEventListener('click', () => this.switchTab('scene'));
+    document.getElementById('theme-button')!.addEventListener('click', () => {
+      (document.getElementById('reset-lights-btn') as HTMLButtonElement).click();
+    });
+    document.getElementById('new-game-btn')!.addEventListener('click', () => {
+      (document.getElementById('reset-btn') as HTMLButtonElement).click();
+    });
+    document.getElementById('dock-prev')!.addEventListener('click', () => {
+      if (this.game.isReplayMode) {
+        this.game.prevMove();
+        this.finishReplayNavigation();
+      } else {
+        this.undoLastMove();
+      }
+    });
+    document.getElementById('dock-next')!.addEventListener('click', () => {
+      if (this.game.isReplayMode) {
+        this.game.nextMove();
+        this.finishReplayNavigation();
+      }
+    });
+    document.getElementById('export-board-btn')!.addEventListener('click', () => this.exportBoardImage());
+    this.updateMoveTimeline();
+  }
+
+  private updateMoveTimeline(): void {
+    const timeline = document.getElementById('move-timeline');
+    if (!timeline) return;
+
+    const moves = this.game.getTimelineMoves();
+    const activeMove = this.game.isReplayMode
+      ? this.game.getCurrentMoveNumber()
+      : moves.length;
+
+    if (moves.length === 0) {
+      timeline.innerHTML = '<div class="move-timeline-empty">Play a move to begin the timeline</div>';
+      return;
+    }
+
+    const visibleCount = Math.min(10, moves.length);
+    const preferredStart = activeMove - Math.ceil(visibleCount / 2);
+    const start = Math.max(0, Math.min(preferredStart, moves.length - visibleCount));
+    const visibleMoves = moves.slice(start, start + visibleCount);
+
+    timeline.innerHTML = visibleMoves.map((move, index) => {
+      const moveNumber = start + index + 1;
+      const coordinate = this.game.positionToGtp(move.x, move.y);
+      return `
+        <button class="timeline-move${moveNumber === activeMove ? ' active' : ''}" data-move="${moveNumber}" title="Go to move ${moveNumber}">
+          <span class="timeline-number">${moveNumber}</span>
+          <span class="timeline-detail">
+            <i class="timeline-stone ${move.color}"></i>
+            <strong>${coordinate}</strong>
+          </span>
+        </button>
+      `;
+    }).join('');
+
+    timeline.querySelectorAll<HTMLButtonElement>('.timeline-move').forEach(button => {
+      button.addEventListener('click', () => {
+        const moveNumber = Number(button.dataset.move);
+        if (!this.game.isReplayMode) this.enterReplayForCurrentGame();
+        if (!this.game.isReplayMode) return;
+        this.game.goToMove(moveNumber);
+        this.finishReplayNavigation();
+      });
+    });
+  }
+
+  private exportBoardImage(): void {
+    const canvas = document.getElementById('board') as HTMLCanvasElement;
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `katago-board-${new Date().toISOString().slice(0, 10)}.png`;
+      link.click();
+      URL.revokeObjectURL(url);
+    }, 'image/png');
   }
 
   private setupFileActions(): void {
@@ -753,6 +895,7 @@ class App {
     this.blackCaptures.textContent = this.game.captures.black.toString();
     this.whiteCaptures.textContent = this.game.captures.white.toString();
     document.getElementById('winrate-branch-move')!.textContent = currentMove.toString();
+    this.updateMoveTimeline();
   }
 
   private playFromReplayPosition(): void {
@@ -1340,10 +1483,11 @@ class App {
 
   private updateUI(): void {
     const player = this.game.currentPlayer;
-    this.turnIndicator.textContent = `${player.charAt(0).toUpperCase() + player.slice(1)}'s turn`;
+    this.turnIndicator.textContent = `${player.charAt(0).toUpperCase() + player.slice(1)} to play`;
     this.stoneIcon.className = `stone-icon ${player}`;
     this.blackCaptures.textContent = this.game.captures.black.toString();
     this.whiteCaptures.textContent = this.game.captures.white.toString();
+    this.updateMoveTimeline();
 
     const reviewBtn = document.getElementById('review-btn') as HTMLButtonElement | null;
     if (reviewBtn) {

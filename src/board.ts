@@ -986,8 +986,9 @@ export class BoardRenderer {
     const boardWidth2D = this.cellSize * (size - 1) + this.padding * 2;
     const targetWidth = boardWidth2D / this.cellSize;
     
-    // We want the board to fit inside the camera view with a 60% margin
-    const visibleDim = targetWidth * 1.6;
+    // The workstation layout frames the board tightly; a small margin keeps
+    // the wooden edge visible while cropping the surrounding bowl props.
+    const visibleDim = targetWidth * 1.14;
     
     const aspect = this.camera.aspect;
     const vFovRad = (this.camera.fov / 2) * (Math.PI / 180);
