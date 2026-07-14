@@ -107,13 +107,17 @@ class App {
               <button class="menu-trigger" type="button" aria-expanded="false">Game</button>
               <div class="menu-panel" id="game-menu" role="menu"></div>
             </div>
+            <div class="menu-group">
+              <button class="menu-trigger" type="button" aria-expanded="false">Analysis</button>
+              <div class="menu-panel" id="analysis-menu" role="menu"></div>
+            </div>
             <div class="header-game-actions" id="header-game-actions"></div>
+            <div class="header-analysis-actions" id="header-analysis-actions"></div>
           </nav>
-          <div class="header-actions" aria-label="Application shortcuts">
-            <button class="icon-button" id="header-load-btn" title="Load SGF" aria-label="Load SGF">⌑</button>
-            <button class="icon-button" id="header-scene-btn" title="Scene settings" aria-label="Scene settings">⚙</button>
-            <button class="icon-button" id="theme-button" title="Reset lighting" aria-label="Reset lighting">☼</button>
-          </div>
+          <button class="icon-button theme-toggle" id="theme-toggle" type="button" aria-label="Switch to light theme" title="Switch to light theme">
+            <span class="theme-icon theme-icon-sun" aria-hidden="true">☀</span>
+            <span class="theme-icon theme-icon-moon" aria-hidden="true">☾</span>
+          </button>
         </header>
         <div class="board-section">
           <canvas id="board"></canvas>
@@ -264,7 +268,7 @@ class App {
           <div class="tab-content" id="tab-analysis">
             <div class="panel-title">Game Analysis</div>
             <div class="analysis-controls">
-              <button class="btn-pass" id="analyze-btn">Analyze Position</button>
+              <button class="btn-pass" id="analyze-btn">Start Analyze</button>
               <div class="server-status">
                 <span>KataGo:</span>
                 <span class="status-badge offline" id="server-status">Offline</span>
@@ -460,6 +464,18 @@ class App {
           <div class="move-strip">
             <button class="strip-arrow" id="dock-prev" title="Previous move">‹</button>
             <div class="move-timeline" id="move-timeline" aria-label="Move timeline"></div>
+            <div class="timeline-scrubber">
+              <span id="timeline-current-move">0</span>
+              <input
+                type="range"
+                id="timeline-jump-slider"
+                min="0"
+                max="0"
+                value="0"
+                aria-label="Jump to move"
+              />
+              <span id="timeline-total-moves">0</span>
+            </div>
             <button class="strip-arrow" id="dock-next" title="Next move">›</button>
           </div>
           <div class="dock-section dock-actions">
@@ -484,11 +500,15 @@ class App {
       <button class="quick-action" id="export-board-btn">▣ <span>Export Board Image</span></button>
     `);
     const gameMenu = document.getElementById('game-menu')!;
+    const analysisMenu = document.getElementById('analysis-menu')!;
     const gameControls = document.createElement('div');
     gameControls.className = 'game-menu-controls';
     gameControls.appendChild(document.getElementById('replay-controls')!);
     gameControls.appendChild(document.getElementById('game-info')!);
     document.getElementById('header-game-actions')!.appendChild(document.querySelector('.buttons')!);
+    const headerAnalysisActions = document.getElementById('header-analysis-actions')!;
+    headerAnalysisActions.appendChild(document.getElementById('turn-indicator')!);
+    document.querySelector('.app-brand')!.appendChild(document.querySelector('.server-status')!);
 
     const aiToggleInput = document.getElementById('play-against-ai') as HTMLInputElement;
     const aiToggleRow = aiToggleInput.closest('.toggle-setting')!;
@@ -506,7 +526,8 @@ class App {
       label: string,
       getValue: () => string,
       options: Array<{ label: string; value: string }>,
-      onSelect: (value: string) => void
+      onSelect: (value: string) => void,
+      ownerMenu: HTMLElement = gameMenu
     ): HTMLElement => {
       const secondaryMenu = document.createElement('div');
       secondaryMenu.className = 'secondary-menu';
@@ -538,7 +559,7 @@ class App {
 
       trigger.addEventListener('click', () => {
         const opening = !secondaryMenu.classList.contains('open');
-        gameMenu.querySelectorAll('.secondary-menu.open').forEach(menu => {
+        ownerMenu.querySelectorAll('.secondary-menu.open').forEach(menu => {
           menu.classList.remove('open');
           menu.querySelector('.secondary-trigger')?.setAttribute('aria-expanded', 'false');
         });
@@ -619,6 +640,70 @@ class App {
     gameMenu.appendChild(document.getElementById('save-sgf-btn')!);
     gameMenu.appendChild(document.getElementById('export-board-btn')!);
     document.getElementById('new-game-btn')!.remove();
+
+    const rulesSource = document.querySelector('.rules-toggle-container')!;
+    const analysisSettingsSource = document.querySelector('#tab-analysis > .settings')!;
+    const analysisSettingSources = document.createElement('div');
+    analysisSettingSources.className = 'analysis-setting-sources';
+    analysisSettingSources.appendChild(rulesSource);
+    analysisSettingSources.appendChild(analysisSettingsSource);
+    analysisMenu.appendChild(analysisSettingSources);
+
+    const liveAnalysisInput = document.getElementById('live-game-analysis') as HTMLInputElement;
+    const bestMovesInput = document.getElementById('show-best-moves') as HTMLInputElement;
+    const ownershipInput = document.getElementById('show-ownership') as HTMLInputElement;
+    const onOffOptions = [
+      { label: 'On', value: 'on' },
+      { label: 'Off', value: 'off' },
+    ];
+    analysisMenu.appendChild(createSecondaryMenu(
+      'Scoring Rules',
+      () => this.selectedRules,
+      [
+        { label: 'Japanese', value: 'japanese' },
+        { label: 'Chinese', value: 'chinese' },
+      ],
+      value => {
+        document.getElementById(value === 'japanese' ? 'btn-rules-japanese' : 'btn-rules-chinese')!.click();
+      },
+      analysisMenu
+    ));
+    analysisMenu.appendChild(createSecondaryMenu(
+      'Live Game Analysis',
+      () => liveAnalysisInput.checked ? 'on' : 'off',
+      onOffOptions,
+      value => {
+        liveAnalysisInput.checked = value === 'on';
+        liveAnalysisInput.dispatchEvent(new Event('change'));
+      },
+      analysisMenu
+    ));
+    analysisMenu.appendChild(createSecondaryMenu(
+      'Best Moves',
+      () => bestMovesInput.checked ? 'on' : 'off',
+      onOffOptions,
+      value => {
+        bestMovesInput.checked = value === 'on';
+        bestMovesInput.dispatchEvent(new Event('change'));
+      },
+      analysisMenu
+    ));
+    analysisMenu.appendChild(createSecondaryMenu(
+      'Show Territory',
+      () => ownershipInput.checked ? 'on' : 'off',
+      onOffOptions,
+      value => {
+        ownershipInput.checked = value === 'on';
+        ownershipInput.dispatchEvent(new Event('change'));
+      },
+      analysisMenu
+    ));
+    const analyzeSeparator = document.createElement('div');
+    analyzeSeparator.className = 'menu-separator';
+    analyzeSeparator.setAttribute('role', 'separator');
+    analysisMenu.appendChild(analyzeSeparator);
+    analysisMenu.appendChild(document.getElementById('analyze-btn')!);
+    document.querySelector('.analysis-controls')!.remove();
     document.querySelector('.load-section')!.remove();
     document.querySelector('.dock-actions')!.remove();
     document.getElementById('tab-game')!.remove();
@@ -647,7 +732,7 @@ class App {
       panel.addEventListener('click', event => {
         event.stopPropagation();
         const target = event.target as HTMLElement;
-        if (target.closest('.btn-load, .btn-save-sgf, .btn-review, .secondary-option, #export-board-btn')) {
+        if (target.closest('.btn-load, .btn-save-sgf, .btn-review, .secondary-option, #analyze-btn, #export-board-btn')) {
           closeMenus();
         }
       });
@@ -655,6 +740,24 @@ class App {
     document.addEventListener('click', closeMenus);
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape') closeMenus();
+    });
+
+    const themeToggle = document.getElementById('theme-toggle') as HTMLButtonElement;
+    const setTheme = (theme: 'dark' | 'light'): void => {
+      const isLight = theme === 'light';
+      document.body.classList.toggle('light-theme', isLight);
+      themeToggle.setAttribute('aria-pressed', String(isLight));
+      themeToggle.setAttribute('aria-label', `Switch to ${isLight ? 'dark' : 'light'} theme`);
+      themeToggle.title = `Switch to ${isLight ? 'dark' : 'light'} theme`;
+      localStorage.setItem('katago-theme', theme);
+    };
+    const savedTheme = localStorage.getItem('katago-theme');
+    const initialTheme = savedTheme === 'light' || savedTheme === 'dark'
+      ? savedTheme
+      : window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    setTheme(initialTheme);
+    themeToggle.addEventListener('click', () => {
+      setTheme(document.body.classList.contains('light-theme') ? 'dark' : 'light');
     });
 
     const container = document.querySelector('.game-container')!;
@@ -776,15 +879,6 @@ class App {
 
     this.analyzeBtn.addEventListener('click', () => this.analyze());
 
-    document.getElementById('header-load-btn')!.addEventListener('click', () => {
-      document.getElementById('sgf-input')!.click();
-    });
-    document.getElementById('header-scene-btn')!.addEventListener('click', () => {
-      document.getElementById('tab-scene')!.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-    document.getElementById('theme-button')!.addEventListener('click', () => {
-      (document.getElementById('reset-lights-btn') as HTMLButtonElement).click();
-    });
     document.getElementById('dock-prev')!.addEventListener('click', () => {
       if (this.game.isReplayMode) {
         this.game.prevMove();
@@ -799,6 +893,15 @@ class App {
         this.finishReplayNavigation();
       }
     });
+    document.getElementById('timeline-jump-slider')!.addEventListener('input', event => {
+      const moveNumber = Number((event.target as HTMLInputElement).value);
+      if (!this.game.isReplayMode && this.game.moveHistory.length > 0) {
+        this.enterReplayForCurrentGame();
+      }
+      if (!this.game.isReplayMode) return;
+      this.game.goToMove(moveNumber);
+      this.finishReplayNavigation();
+    });
     document.getElementById('export-board-btn')!.addEventListener('click', () => this.exportBoardImage());
     this.updateMoveTimeline();
   }
@@ -811,6 +914,12 @@ class App {
     const activeMove = this.game.isReplayMode
       ? this.game.getCurrentMoveNumber()
       : moves.length;
+    const jumpSlider = document.getElementById('timeline-jump-slider') as HTMLInputElement;
+    jumpSlider.max = moves.length.toString();
+    jumpSlider.value = activeMove.toString();
+    jumpSlider.disabled = moves.length === 0;
+    document.getElementById('timeline-current-move')!.textContent = activeMove.toString();
+    document.getElementById('timeline-total-moves')!.textContent = moves.length.toString();
 
     if (moves.length === 0) {
       timeline.innerHTML = '<div class="move-timeline-empty">Play a move to begin the timeline</div>';
@@ -1243,7 +1352,7 @@ class App {
       this.updateServerStatus();
     } finally {
       this.analyzeBtn.disabled = false;
-      this.analyzeBtn.textContent = 'Analyze Position';
+      this.analyzeBtn.textContent = 'Start Analyze';
     }
   }
 
