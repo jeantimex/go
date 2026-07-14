@@ -84,6 +84,8 @@ export class BoardRenderer {
 
   // Event Listeners references for cleanup
   private clickListener!: (e: MouseEvent) => void;
+  private pointerdownListener!: (e: PointerEvent) => void;
+  private pointermoveDragListener!: (e: PointerEvent) => void;
   private mousemoveListener!: (e: MouseEvent) => void;
   private mouseleaveListener!: () => void;
   private resizeListener!: () => void;
@@ -96,6 +98,8 @@ export class BoardRenderer {
   private isUsingInteractionResolution = false;
   private isCameraInteracting = false;
   private interactionResolutionTimer: number | null = null;
+  private dragStart: { pointerId: number; x: number; y: number } | null = null;
+  private pointerDragged = false;
 
   private readonly starPoints19 = [
     [3, 3], [9, 3], [15, 3],
@@ -209,7 +213,7 @@ export class BoardRenderer {
     this.controls.minPolarAngle = 0.05;
     this.controls.maxPolarAngle = Math.PI - 0.08;
     this.controls.addEventListener('start', this.beginCameraInteraction);
-    this.controls.addEventListener('change', this.deferFullResolution);
+    this.controls.addEventListener('change', this.handleCameraChange);
     this.controls.addEventListener('end', this.endCameraInteraction);
 
     // Create Cache Canvas for 2D board drawing
@@ -769,10 +773,20 @@ export class BoardRenderer {
       window.clearTimeout(this.interactionResolutionTimer);
       this.interactionResolutionTimer = null;
     }
-    if (this.isUsingInteractionResolution || this.interactionPixelRatio === this.displayPixelRatio) return;
+  };
 
-    this.isUsingInteractionResolution = true;
-    this.renderer.setPixelRatio(this.interactionPixelRatio);
+  private handleCameraChange = (): void => {
+    // OrbitControls emits "start" for every pointer-down, including a simple
+    // stone placement click. Lower resolution only after the camera really
+    // changes, so board clicks cannot cause a brief quality jump.
+    if (this.isCameraInteracting
+      && !this.isUsingInteractionResolution
+      && this.interactionPixelRatio !== this.displayPixelRatio) {
+      this.isUsingInteractionResolution = true;
+      this.renderer.setPixelRatio(this.interactionPixelRatio);
+    }
+
+    this.deferFullResolution();
   };
 
   private endCameraInteraction = (): void => {
@@ -801,7 +815,24 @@ export class BoardRenderer {
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
+    this.pointerdownListener = (e: PointerEvent) => {
+      this.dragStart = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+      this.pointerDragged = false;
+    };
+
+    this.pointermoveDragListener = (e: PointerEvent) => {
+      if (!this.dragStart || this.dragStart.pointerId !== e.pointerId || this.pointerDragged) return;
+      const distance = Math.hypot(e.clientX - this.dragStart.x, e.clientY - this.dragStart.y);
+      if (distance > 5) this.pointerDragged = true;
+    };
+
     this.clickListener = (e: MouseEvent) => {
+      if (this.pointerDragged) {
+        this.pointerDragged = false;
+        this.dragStart = null;
+        return;
+      }
+      this.dragStart = null;
       if (this.game.isReplayMode) return;
 
       const pos = this.getRaycastPosition(e, raycaster, mouse);
@@ -834,6 +865,8 @@ export class BoardRenderer {
       this.render();
     };
 
+    this.canvas.addEventListener('pointerdown', this.pointerdownListener);
+    this.canvas.addEventListener('pointermove', this.pointermoveDragListener);
     this.canvas.addEventListener('click', this.clickListener);
     this.canvas.addEventListener('mousemove', this.mousemoveListener);
     this.canvas.addEventListener('mouseleave', this.mouseleaveListener);
@@ -1612,6 +1645,8 @@ export class BoardRenderer {
   }
 
   dispose(): void {
+    this.canvas.removeEventListener('pointerdown', this.pointerdownListener);
+    this.canvas.removeEventListener('pointermove', this.pointermoveDragListener);
     this.canvas.removeEventListener('click', this.clickListener);
     this.canvas.removeEventListener('mousemove', this.mousemoveListener);
     this.canvas.removeEventListener('mouseleave', this.mouseleaveListener);
@@ -1627,7 +1662,7 @@ export class BoardRenderer {
 
     if (this.controls) {
       this.controls.removeEventListener('start', this.beginCameraInteraction);
-      this.controls.removeEventListener('change', this.deferFullResolution);
+      this.controls.removeEventListener('change', this.handleCameraChange);
       this.controls.removeEventListener('end', this.endCameraInteraction);
       this.controls.dispose();
     }
