@@ -38,7 +38,7 @@ export async function analyzePosition(
   });
 
   if (!response.ok) {
-    throw new Error('Analysis request failed');
+    throw new Error(`Analysis request failed (${response.status} ${response.statusText})`);
   }
 
   return response.json();
@@ -57,7 +57,7 @@ export async function analyzeGameWinrates(
   });
 
   if (!response.ok) {
-    throw new Error('Game analysis request failed');
+    throw new Error(`Game analysis request failed (${response.status} ${response.statusText})`);
   }
 
   return response.json();

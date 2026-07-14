@@ -91,6 +91,11 @@ export class BoardRenderer {
   private animationFrameId: number | null = null;
   private lastPhysicsStepTime = performance.now();
   private readonly physicsTimeScale = 1.2;
+  private readonly displayPixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  private readonly interactionPixelRatio = Math.min(window.devicePixelRatio || 1, 1.25);
+  private isUsingInteractionResolution = false;
+  private isCameraInteracting = false;
+  private interactionResolutionTimer: number | null = null;
 
   private readonly starPoints19 = [
     [3, 3], [9, 3], [15, 3],
@@ -183,9 +188,13 @@ export class BoardRenderer {
       antialias: true,
       alpha: false // Solid background clear color
     });
-    this.renderer.setPixelRatio(window.devicePixelRatio || 1);
+    this.renderer.setPixelRatio(this.displayPixelRatio);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap; // Default shadow mapping type (VSM is selectable in Scene settings)
+    // The light and GLTF model are normally static. Reuse their shadow map
+    // instead of rendering every shadow caster again on every frame.
+    this.renderer.shadowMap.autoUpdate = false;
+    this.renderer.shadowMap.needsUpdate = true;
     this.renderer.setSize(width, height, false);
 
     // Setup OrbitControls
@@ -195,6 +204,9 @@ export class BoardRenderer {
     this.controls.minDistance = 4;
     this.controls.maxDistance = 80;
     this.controls.maxPolarAngle = Math.PI / 2 - 0.05; // Prevent camera from going below ground
+    this.controls.addEventListener('start', this.beginCameraInteraction);
+    this.controls.addEventListener('change', this.deferFullResolution);
+    this.controls.addEventListener('end', this.endCameraInteraction);
 
     // Create Cache Canvas for 2D board drawing
     const size = this.cellSize * (this.game.size - 1) + this.padding * 2;
@@ -648,6 +660,7 @@ export class BoardRenderer {
       this.gltfScene = gltf.scene;
       this.scene.add(gltf.scene);
       this.isGltfLoaded = true;
+      this.renderer.shadowMap.needsUpdate = true;
 
       // Center controls target on board
       if (this.controls) {
@@ -683,6 +696,9 @@ export class BoardRenderer {
       // skipped entirely. New stones start awake and resume the fixed step.
       if (hasActiveStones) {
         this.world.step(1 / 60, frameTime, 3);
+        // Moving captured stones are the only regular source of dynamic
+        // shadows. Once they sleep, the cached shadow map is reused.
+        this.renderer.shadowMap.needsUpdate = true;
       }
 
       // Sync three.js mesh positions and rotations with Cannon.js bodies
@@ -743,6 +759,40 @@ export class BoardRenderer {
     this.renderer.render(this.scene, this.camera);
   }
 
+  private beginCameraInteraction = (): void => {
+    this.isCameraInteracting = true;
+    if (this.interactionResolutionTimer !== null) {
+      window.clearTimeout(this.interactionResolutionTimer);
+      this.interactionResolutionTimer = null;
+    }
+    if (this.isUsingInteractionResolution || this.interactionPixelRatio === this.displayPixelRatio) return;
+
+    this.isUsingInteractionResolution = true;
+    this.renderer.setPixelRatio(this.interactionPixelRatio);
+  };
+
+  private endCameraInteraction = (): void => {
+    this.isCameraInteracting = false;
+    this.deferFullResolution();
+  };
+
+  private deferFullResolution = (): void => {
+    if (!this.isUsingInteractionResolution) return;
+    if (this.interactionResolutionTimer !== null) {
+      window.clearTimeout(this.interactionResolutionTimer);
+    }
+
+    // Damping continues moving the camera after pointer-up. Wait until its
+    // change events settle before returning to full display resolution.
+    this.interactionResolutionTimer = window.setTimeout(() => {
+      this.interactionResolutionTimer = null;
+      this.isUsingInteractionResolution = false;
+      this.renderer.setPixelRatio(this.displayPixelRatio);
+      this.resize();
+      this.renderer.render(this.scene, this.camera);
+    }, 160);
+  };
+
   private setupEventListeners(): void {
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
@@ -760,6 +810,9 @@ export class BoardRenderer {
     };
 
     this.mousemoveListener = (e: MouseEvent) => {
+      // OrbitControls owns pointer movement while rotating/panning. Avoid
+      // raycasting and rebuilding the board texture behind that interaction.
+      if (this.isCameraInteracting) return;
       const pos = this.getRaycastPosition(e, raycaster, mouse);
       if (pos?.x !== this.hoverPos?.x || pos?.y !== this.hoverPos?.y) {
         this.hoverPos = pos;
@@ -997,6 +1050,7 @@ export class BoardRenderer {
 
   setShadowsEnabled(enabled: boolean): void {
     this.renderer.shadowMap.enabled = enabled;
+    if (enabled) this.renderer.shadowMap.needsUpdate = true;
     
     // We must update the materials to re-compile shaders for shadow maps
     this.scene.traverse((node) => {
@@ -1129,6 +1183,7 @@ export class BoardRenderer {
       if (!currentStoneKeys.has(key)) {
         this.scene.remove(mesh);
         this.stoneMeshes.delete(key);
+        this.renderer.shadowMap.needsUpdate = true;
       }
     });
 
@@ -1171,6 +1226,7 @@ export class BoardRenderer {
     mesh.receiveShadow = true;
     this.scene.add(mesh);
     this.stoneMeshes.set(`${x},${y}`, mesh);
+    this.renderer.shadowMap.needsUpdate = true;
   }
 
   private updateLastMoveMarker(x: number, y: number, scale: number): void {
@@ -1526,6 +1582,7 @@ export class BoardRenderer {
         
         const stoneData = { mesh, body, lidType };
         this.capturedStones.push(stoneData);
+        this.renderer.shadowMap.needsUpdate = true;
       }
     } else if (currentStones.length > targetCount) {
       // Remove excess stones (from the end of the array)
@@ -1545,6 +1602,7 @@ export class BoardRenderer {
         if (idx !== -1) {
           this.capturedStones.splice(idx, 1);
         }
+        this.renderer.shadowMap.needsUpdate = true;
       }
     }
   }
@@ -1558,8 +1616,15 @@ export class BoardRenderer {
     if (this.animationFrameId) {
       cancelAnimationFrame(this.animationFrameId);
     }
+    if (this.interactionResolutionTimer !== null) {
+      window.clearTimeout(this.interactionResolutionTimer);
+      this.interactionResolutionTimer = null;
+    }
 
     if (this.controls) {
+      this.controls.removeEventListener('start', this.beginCameraInteraction);
+      this.controls.removeEventListener('change', this.deferFullResolution);
+      this.controls.removeEventListener('end', this.endCameraInteraction);
       this.controls.dispose();
     }
 

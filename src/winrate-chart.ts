@@ -55,6 +55,11 @@ export class WinrateChart {
     this.render();
   }
 
+  truncateAfter(moveNumber: number): void {
+    this.points = this.points.filter(point => point.moveNumber <= moveNumber);
+    this.render();
+  }
+
   setSeriesVisibility(showBlack: boolean, showWhite: boolean): void {
     this.showBlack = showBlack;
     this.showWhite = showWhite;

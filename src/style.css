@@ -427,6 +427,19 @@ button:active {
   position: relative;
 }
 
+.winrate-play-from-here {
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: #2980b9;
+  color: #fff;
+  font-size: 11px;
+}
+
+.winrate-play-from-here:hover {
+  background: #3498db;
+}
+
 .winrate-series-controls {
   display: flex;
   gap: 14px;
