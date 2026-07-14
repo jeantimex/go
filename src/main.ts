@@ -1,7 +1,13 @@
 import { GoGame, GameMove } from './game';
 import { BoardRenderer, LastMoveMarkerType } from './board';
-import { analyzePosition, checkServerHealth, AnalysisResponse } from './analysis';
+import {
+  analyzeGameWinrates,
+  analyzePosition,
+  checkServerHealth,
+  AnalysisResponse,
+} from './analysis';
 import { parseSgf, GameInfo, generateSgf } from './sgf';
+import { WinrateChart } from './winrate-chart';
 import './style.css';
 
 class App {
@@ -19,10 +25,19 @@ class App {
   private gameInfo: GameInfo | null = null;
   private selectedRules: 'japanese' | 'chinese' = 'japanese';
   private latestAnalysis: AnalysisResponse | null = null;
+  private winrateChart: WinrateChart;
+  private chartGeneration = 0;
+  private backfilledGeneration = -1;
+  private liveAnalysisTimer: number | null = null;
 
   constructor() {
     this.game = new GoGame(19);
     this.createUI();
+    this.winrateChart = new WinrateChart(
+      document.getElementById('winrate-chart')!,
+      moveNumber => this.showMoveFromWinrateChart(moveNumber)
+    );
+    this.setupWinrateChartControls();
     this.renderer = new BoardRenderer(
       document.getElementById('board') as HTMLCanvasElement,
       this.game
@@ -33,6 +48,7 @@ class App {
       if (!this.game.isReplayMode) {
         this.hideReplayControls();
       }
+      this.scheduleLiveWinrateAnalysis();
     };
     this.renderer.render();
     this.setupBoardSizeButtons();
@@ -224,6 +240,26 @@ class App {
               </div>
             </div>
 
+            <div class="winrate-chart-section">
+              <div class="winrate-chart-header">
+                <span>Win Rate by Move</span>
+                <span id="winrate-chart-status"></span>
+              </div>
+              <div class="winrate-series-controls">
+                <label class="winrate-series-toggle">
+                  <input type="checkbox" id="show-black-winrate" checked />
+                  <span class="winrate-swatch black"></span>
+                  Black
+                </label>
+                <label class="winrate-series-toggle">
+                  <input type="checkbox" id="show-white-winrate" checked />
+                  <span class="winrate-swatch white"></span>
+                  White
+                </label>
+              </div>
+              <div id="winrate-chart" class="winrate-chart"></div>
+            </div>
+
             <div class="rules-toggle-container" style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid #333;">
               <span style="font-size: 11px; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Scoring Rules</span>
               <div class="rules-toggle">
@@ -363,6 +399,7 @@ class App {
       this.renderer.render();
       this.updateUI();
       this.hideAnalysis();
+      this.resetWinrateHistory();
     });
 
     document.getElementById('last-move-marker')!.addEventListener('change', (e) => {
@@ -421,6 +458,7 @@ class App {
 
   private loadSgf(content: string): void {
     const parsed = parseSgf(content);
+    this.resetWinrateHistory();
     this.gameInfo = parsed.info;
 
     if (parsed.info.boardSize !== this.game.size) {
@@ -591,6 +629,13 @@ class App {
       try {
         this.showAnalysis(result);
         this.renderer.setAnalysis(result);
+        this.winrateChart.upsert({
+          moveNumber: moves.length,
+          winrate: result.winrate,
+          scoreLead: result.scoreLead,
+          visits: result.visits,
+        });
+        void this.backfillWinrateHistory();
       } catch (error) {
         // A presentation bug must not be reported as a KataGo outage.
         console.error('Failed to display analysis:', error);
@@ -603,6 +648,114 @@ class App {
       this.analyzeBtn.disabled = false;
       this.analyzeBtn.textContent = 'Analyze Position';
     }
+  }
+
+  private scheduleLiveWinrateAnalysis(): void {
+    if (!this.serverOnline || this.game.isReplayMode) return;
+    if (this.backfilledGeneration !== this.chartGeneration) {
+      void this.backfillWinrateHistory();
+    }
+    if (this.liveAnalysisTimer !== null) {
+      window.clearTimeout(this.liveAnalysisTimer);
+    }
+
+    // Avoid starting work for accidental double-clicks or a rapid sequence of
+    // replay/navigation changes. Human play still feels immediate at 120ms.
+    this.liveAnalysisTimer = window.setTimeout(() => {
+      this.liveAnalysisTimer = null;
+      void this.updateLiveWinrate();
+    }, 120);
+  }
+
+  private setupWinrateChartControls(): void {
+    const blackToggle = document.getElementById('show-black-winrate') as HTMLInputElement;
+    const whiteToggle = document.getElementById('show-white-winrate') as HTMLInputElement;
+    const updateVisibility = (): void => {
+      this.winrateChart.setSeriesVisibility(blackToggle.checked, whiteToggle.checked);
+    };
+    blackToggle.addEventListener('change', updateVisibility);
+    whiteToggle.addEventListener('change', updateVisibility);
+  }
+
+  private showMoveFromWinrateChart(moveNumber: number): void {
+    if (this.game.getTotalMoves() === 0 && !this.game.isReplayMode) {
+      this.enterReplayForCurrentGame();
+    }
+    if (!this.game.isReplayMode) return;
+
+    this.game.goToMove(moveNumber);
+    this.renderer.clearAnalysis();
+    this.updateReplayUI();
+    this.renderer.render();
+    this.switchTab('game');
+  }
+
+  private async updateLiveWinrate(): Promise<void> {
+    const generation = this.chartGeneration;
+    const moves = this.game.getKataGoMoves();
+    const moveNumber = moves.length;
+    const komi = this.gameInfo?.komi ?? 6.5;
+    const status = document.getElementById('winrate-chart-status')!;
+    status.textContent = 'Updating…';
+
+    try {
+      // Forty visits and no ownership keeps this responsive. A manual Analyze
+      // request later replaces this point with the full 200-visit result.
+      const result = await analyzePosition(this.game.size, moves, komi, 40, false);
+      if (generation !== this.chartGeneration || moveNumber !== this.game.moveHistory.length) return;
+
+      this.winrateChart.upsert({
+        moveNumber,
+        winrate: result.winrate,
+        scoreLead: result.scoreLead,
+        visits: result.visits,
+      });
+      status.textContent = `${result.visits} visits`;
+    } catch (error) {
+      console.error('Live win-rate update failed:', error);
+      if (generation === this.chartGeneration) status.textContent = 'Update failed';
+    }
+  }
+
+  private async backfillWinrateHistory(): Promise<void> {
+    const generation = this.chartGeneration;
+    if (this.backfilledGeneration === generation) return;
+    this.backfilledGeneration = generation;
+
+    const moves = this.game.getKataGoMoves();
+    if (moves.length === 0) return;
+
+    const boardSize = this.game.size;
+    const komi = this.gameInfo?.komi ?? 6.5;
+    const status = document.getElementById('winrate-chart-status')!;
+    status.textContent = 'Building history…';
+
+    try {
+      const points = await analyzeGameWinrates(boardSize, moves, komi, 1);
+      if (generation !== this.chartGeneration) return;
+
+      // Preserve any higher-visit live/manual point already on the chart.
+      this.winrateChart.mergeMissing(points);
+      status.textContent = `${points.length} positions`;
+    } catch (error) {
+      console.error('Win-rate history failed:', error);
+      if (generation === this.chartGeneration) {
+        status.textContent = 'History failed';
+        this.backfilledGeneration = -1;
+      }
+    }
+  }
+
+  private resetWinrateHistory(): void {
+    this.chartGeneration++;
+    this.backfilledGeneration = -1;
+    if (this.liveAnalysisTimer !== null) {
+      window.clearTimeout(this.liveAnalysisTimer);
+      this.liveAnalysisTimer = null;
+    }
+    this.winrateChart.clear();
+    const status = document.getElementById('winrate-chart-status');
+    if (status) status.textContent = '';
   }
 
   private showAnalysis(result: AnalysisResponse): void {
@@ -657,6 +810,7 @@ class App {
 
   private changeBoardSize(size: number): void {
     this.game = new GoGame(size);
+    this.resetWinrateHistory();
     this.renderer.updateGame(this.game);
     this.renderer.render();
     this.updateUI();

@@ -354,6 +354,168 @@ button:active {
   gap: 6px;
 }
 
+.winrate-chart-section {
+  background: #252525;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.winrate-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  color: #ccc;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+#winrate-chart-status {
+  color: #777;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.winrate-chart {
+  width: 100%;
+  min-height: 180px;
+  position: relative;
+}
+
+.winrate-series-controls {
+  display: flex;
+  gap: 14px;
+  margin: 6px 0 2px 36px;
+}
+
+.winrate-series-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #aaa;
+  font-size: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.winrate-series-toggle input {
+  margin: 0;
+  accent-color: #777;
+}
+
+.winrate-swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.winrate-swatch.black {
+  background: #d06478;
+}
+
+.winrate-swatch.white {
+  background: #62aee8;
+}
+
+.winrate-chart svg {
+  display: block;
+  overflow: visible;
+}
+
+.winrate-axis path,
+.winrate-axis line {
+  stroke: #555;
+}
+
+.winrate-axis text {
+  fill: #888;
+  font-size: 9px;
+}
+
+.winrate-even-line {
+  stroke: #666;
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.winrate-line {
+  fill: none;
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+
+.winrate-line-black {
+  stroke: #d06478;
+}
+
+.winrate-line-white {
+  stroke: #62aee8;
+}
+
+.winrate-hover-line {
+  stroke: #ddd;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  pointer-events: none;
+}
+
+.winrate-hover-target {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.winrate-tooltip {
+  position: absolute;
+  z-index: 2;
+  display: none;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 108px;
+  padding: 7px 9px;
+  border: 1px solid #555;
+  border-radius: 5px;
+  background: rgba(24, 24, 24, 0.94);
+  color: #ddd;
+  font-size: 10px;
+  line-height: 1.25;
+  pointer-events: none;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+}
+
+.winrate-tooltip strong {
+  color: #fff;
+  font-size: 11px;
+}
+
+.winrate-tooltip span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.winrate-tooltip i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.winrate-tooltip i.black {
+  background: #d06478;
+}
+
+.winrate-tooltip i.white {
+  background: #62aee8;
+}
+
+.winrate-empty {
+  fill: #777;
+  font-size: 10px;
+}
+
 .move-suggestion {
   display: flex;
   align-items: center;

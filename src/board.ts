@@ -748,11 +748,10 @@ export class BoardRenderer {
     const mouse = new THREE.Vector2();
 
     this.clickListener = (e: MouseEvent) => {
+      if (this.game.isReplayMode) return;
+
       const pos = this.getRaycastPosition(e, raycaster, mouse);
       if (pos) {
-        if (this.game.isReplayMode) {
-          this.game.exitReplayMode();
-        }
         if (this.game.placeStone(pos.x, pos.y)) {
           this.render();
           this.onMove?.();
@@ -1127,7 +1126,7 @@ export class BoardRenderer {
     });
 
     // 4. Sync Hover Stone Mesh
-    if (this.hoverPos && this.game.canPlaceStone(this.hoverPos.x, this.hoverPos.y)) {
+    if (!this.game.isReplayMode && this.hoverPos && this.game.canPlaceStone(this.hoverPos.x, this.hoverPos.y)) {
       if (!this.hoverMesh) {
         this.hoverMesh = new THREE.Mesh(this.stoneGeom, this.ghostMat);
         this.scene.add(this.hoverMesh);
