@@ -1481,7 +1481,7 @@ export class BoardRenderer {
       ctx.font = `bold ${this.cellSize * 0.35}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(`${index + 1}`, px, py);
+      ctx.fillText(String.fromCharCode(97 + index), px, py);
       ctx.restore();
     });
   }

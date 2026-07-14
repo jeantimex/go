@@ -30,9 +30,9 @@ class App {
   private backfilledGeneration = -1;
   private liveAnalysisTimer: number | null = null;
   private liveAnalysisRequest = 0;
-  private replayTerritoryTimer: number | null = null;
-  private replayTerritoryRequest = 0;
-  private replayTerritoryCache = new Map<number, AnalysisResponse>();
+  private replayAnalysisTimer: number | null = null;
+  private replayAnalysisRequest = 0;
+  private replayAnalysisCache = new Map<number, AnalysisResponse>();
 
   constructor() {
     this.game = new GoGame(19);
@@ -51,6 +51,7 @@ class App {
       this.updateUI();
       this.renderer.clearAnalysis();
       this.renderer.render();
+      this.hideAnalysis();
       if (!this.game.isReplayMode) {
         this.hideReplayControls();
       }
@@ -296,6 +297,11 @@ class App {
                 <div class="toggle-switch"></div>
               </label>
               <label class="toggle-setting">
+                <span>Best moves</span>
+                <input type="checkbox" id="show-best-moves" />
+                <div class="toggle-switch"></div>
+              </label>
+              <label class="toggle-setting">
                 <span>Show territory</span>
                 <input type="checkbox" id="show-ownership" />
                 <div class="toggle-switch"></div>
@@ -418,6 +424,7 @@ class App {
       this.renderer.clearAnalysis();
       this.renderer.render();
       this.updateUI();
+      this.hideAnalysis();
       this.scheduleLiveWinrateAnalysis();
     });
 
@@ -439,7 +446,7 @@ class App {
       this.renderer.showOwnership = (e.target as HTMLInputElement).checked;
       this.renderer.render();
       if (this.game.isReplayMode) {
-        this.scheduleReplayTerritory();
+        this.scheduleReplayPositionAnalysis();
       } else {
         this.scheduleLiveWinrateAnalysis();
       }
@@ -449,8 +456,25 @@ class App {
       if (!(event.target as HTMLInputElement).checked && !this.game.isReplayMode) {
         this.renderer.clearAnalysis();
         this.renderer.render();
+        this.hideAnalysis();
       }
       this.scheduleLiveWinrateAnalysis();
+    });
+
+    document.getElementById('show-best-moves')!.addEventListener('change', () => {
+      const liveAnalysisEnabled = (document.getElementById('live-game-analysis') as HTMLInputElement).checked;
+      const currentAnalysis = this.latestAnalysis;
+      this.renderer.clearAnalysis();
+      this.renderer.render();
+      this.hideAnalysis();
+
+      if (this.game.isReplayMode) {
+        this.scheduleReplayPositionAnalysis();
+      } else if (liveAnalysisEnabled) {
+        this.scheduleLiveWinrateAnalysis();
+      } else if (currentAnalysis) {
+        this.applyPositionAnalysis(currentAnalysis, this.game.moveHistory.length, 'manual');
+      }
     });
 
     this.analyzeBtn.addEventListener('click', () => this.analyze());
@@ -642,11 +666,12 @@ class App {
   }
 
   private finishReplayNavigation(): void {
-    this.replayTerritoryRequest++;
+    this.replayAnalysisRequest++;
     this.renderer.clearAnalysis();
+    this.hideAnalysis();
     this.updateReplayUI();
     this.renderer.render();
-    this.scheduleReplayTerritory();
+    this.scheduleReplayPositionAnalysis();
   }
 
   private updateReplayUI(): void {
@@ -665,6 +690,7 @@ class App {
     this.game.exitReplayMode();
     this.pruneAnalysisAfter(branchMove);
     this.renderer.clearAnalysis();
+    this.hideAnalysis();
     this.hideReplayControls();
     this.renderer.render();
     this.updateUI();
@@ -739,19 +765,20 @@ class App {
     this.finishReplayNavigation();
   }
 
-  private scheduleReplayTerritory(): void {
-    const request = ++this.replayTerritoryRequest;
-    if (this.replayTerritoryTimer !== null) {
-      window.clearTimeout(this.replayTerritoryTimer);
-      this.replayTerritoryTimer = null;
+  private scheduleReplayPositionAnalysis(): void {
+    const request = ++this.replayAnalysisRequest;
+    if (this.replayAnalysisTimer !== null) {
+      window.clearTimeout(this.replayAnalysisTimer);
+      this.replayAnalysisTimer = null;
     }
 
     const ownershipEnabled = (document.getElementById('show-ownership') as HTMLInputElement).checked;
-    if (!ownershipEnabled || !this.game.isReplayMode || !this.serverOnline) return;
+    const bestMovesEnabled = (document.getElementById('show-best-moves') as HTMLInputElement).checked;
+    if ((!ownershipEnabled && !bestMovesEnabled) || !this.game.isReplayMode || !this.serverOnline) return;
 
     const moveNumber = this.game.getCurrentMoveNumber();
-    const cached = this.replayTerritoryCache.get(moveNumber);
-    if (cached) {
+    const cached = this.replayAnalysisCache.get(moveNumber);
+    if (cached && (!ownershipEnabled || cached.ownership)) {
       this.applyPositionAnalysis(cached, moveNumber, 'replay');
       return;
     }
@@ -761,23 +788,23 @@ class App {
     const moves = this.game.getKataGoMoves();
     const komi = this.gameInfo?.komi ?? 6.5;
 
-    this.replayTerritoryTimer = window.setTimeout(async () => {
-      this.replayTerritoryTimer = null;
+    this.replayAnalysisTimer = window.setTimeout(async () => {
+      this.replayAnalysisTimer = null;
       try {
-        const result = await this.requestPositionAnalysis(moves, 40, true, boardSize, komi);
-        const territoryOnly = { ...result, topMoves: [] };
+        const result = await this.requestPositionAnalysis(moves, 40, ownershipEnabled, boardSize, komi);
         if (generation === this.chartGeneration) {
-          this.replayTerritoryCache.set(moveNumber, territoryOnly);
+          this.replayAnalysisCache.set(moveNumber, result);
         }
 
-        const stillCurrent = request === this.replayTerritoryRequest
+        const stillCurrent = request === this.replayAnalysisRequest
           && generation === this.chartGeneration
           && this.game.isReplayMode
           && this.game.getCurrentMoveNumber() === moveNumber
-          && (document.getElementById('show-ownership') as HTMLInputElement).checked;
-        if (stillCurrent) this.applyPositionAnalysis(territoryOnly, moveNumber, 'replay');
+          && ((document.getElementById('show-ownership') as HTMLInputElement).checked
+            || (document.getElementById('show-best-moves') as HTMLInputElement).checked);
+        if (stillCurrent) this.applyPositionAnalysis(result, moveNumber, 'replay');
       } catch (error) {
-        console.error('Replay territory analysis failed:', error);
+        console.error('Replay position analysis failed:', error);
       }
     }, 100);
   }
@@ -831,16 +858,18 @@ class App {
       visits: result.visits,
     });
 
-    if (source === 'manual') {
-      this.showAnalysis(result);
-      this.renderer.setAnalysis(result);
+    const ownershipEnabled = (document.getElementById('show-ownership') as HTMLInputElement).checked;
+    const bestMovesEnabled = (document.getElementById('show-best-moves') as HTMLInputElement).checked;
+    const visibleResult = bestMovesEnabled ? result : { ...result, topMoves: [] };
+
+    if (source === 'manual' || bestMovesEnabled) {
+      this.showAnalysis(visibleResult, result);
+      this.renderer.setAnalysis(visibleResult);
       return;
     }
 
-    const ownershipEnabled = (document.getElementById('show-ownership') as HTMLInputElement).checked;
     if (ownershipEnabled && result.ownership) {
-      // Live/replay navigation needs the territory overlay, not suggestion
-      // markers intended for a manual position analysis.
+      // Territory can update independently without drawing suggestion markers.
       this.renderer.setAnalysis({ ...result, topMoves: [] });
     }
   }
@@ -878,11 +907,11 @@ class App {
     this.chartGeneration++;
     this.backfilledGeneration = -1;
     this.liveAnalysisRequest++;
-    this.replayTerritoryRequest++;
-    this.replayTerritoryCache.clear();
-    if (this.replayTerritoryTimer !== null) {
-      window.clearTimeout(this.replayTerritoryTimer);
-      this.replayTerritoryTimer = null;
+    this.replayAnalysisRequest++;
+    this.replayAnalysisCache.clear();
+    if (this.replayAnalysisTimer !== null) {
+      window.clearTimeout(this.replayAnalysisTimer);
+      this.replayAnalysisTimer = null;
     }
     if (this.liveAnalysisTimer !== null) {
       window.clearTimeout(this.liveAnalysisTimer);
@@ -899,28 +928,28 @@ class App {
     this.chartGeneration++;
     this.backfilledGeneration = this.chartGeneration;
     this.liveAnalysisRequest++;
-    this.replayTerritoryRequest++;
+    this.replayAnalysisRequest++;
 
     if (this.liveAnalysisTimer !== null) {
       window.clearTimeout(this.liveAnalysisTimer);
       this.liveAnalysisTimer = null;
     }
-    if (this.replayTerritoryTimer !== null) {
-      window.clearTimeout(this.replayTerritoryTimer);
-      this.replayTerritoryTimer = null;
+    if (this.replayAnalysisTimer !== null) {
+      window.clearTimeout(this.replayAnalysisTimer);
+      this.replayAnalysisTimer = null;
     }
 
     this.winrateChart.truncateAfter(moveNumber);
-    for (const cachedMove of this.replayTerritoryCache.keys()) {
-      if (cachedMove > moveNumber) this.replayTerritoryCache.delete(cachedMove);
+    for (const cachedMove of this.replayAnalysisCache.keys()) {
+      if (cachedMove > moveNumber) this.replayAnalysisCache.delete(cachedMove);
     }
 
     const status = document.getElementById('winrate-chart-status');
     if (status) status.textContent = `Playing from move ${moveNumber}`;
   }
 
-  private showAnalysis(result: AnalysisResponse): void {
-    this.latestAnalysis = result;
+  private showAnalysis(result: AnalysisResponse, fullResult: AnalysisResponse = result): void {
+    this.latestAnalysis = fullResult;
     this.winrateDisplay.style.display = 'block';
 
     const blackWinrate = result.winrate * 100;
@@ -939,7 +968,7 @@ class App {
         const colors = ['#27ae60', '#f39c12', '#3498db'];
         return `
           <div class="move-suggestion">
-            <span class="move-rank" style="background: ${colors[i]}">${i + 1}</span>
+            <span class="move-rank" style="background: ${colors[i]}">${String.fromCharCode(97 + i)}</span>
             <span class="move-coord">${move.move}</span>
             <span class="move-winrate">${(move.winrate * 100).toFixed(1)}%</span>
           </div>
@@ -1400,7 +1429,7 @@ class App {
     this.game.lastMoveReplay();
     this.updateReplayUI();
     this.renderer.render();
-    this.scheduleReplayTerritory();
+    this.scheduleReplayPositionAnalysis();
   }
 }
 
